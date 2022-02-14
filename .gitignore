@@ -1,0 +1,8 @@
+bin/
+bin-int/
+.vscode/
+.vs/
+**/Makefile
+svartmort.sln
+**/*.vcxproj
+**/*.vcxproj.user

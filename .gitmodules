@@ -1,0 +1,3 @@
+[submodule "ghua/vendor/glfw"]
+	path = ghua/vendor/glfw
+	url = https://github.com/GFoUS/glfw
