@@ -17,8 +17,10 @@ project "fenrir"
 		"../ghua/src"
 	}
 
-	links {
-		"ghua"
+	links  {
+		"ghua",
+		"pthread",
+        "dl"
 	}
 
 	filter "configurations:Debug"

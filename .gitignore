@@ -3,6 +3,6 @@ bin-int/
 .vscode/
 .vs/
 **/Makefile
-svartmort.sln
+fenrir.sln
 **/*.vcxproj
 **/*.vcxproj.user

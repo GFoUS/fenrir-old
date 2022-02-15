@@ -1,8 +1,7 @@
 project "ghua"
-	kind "SharedLib"
+	kind "StaticLib"
 	language "C++"
 	cppdialect "C++17"
-	staticruntime "on"
 
 	targetdir ("%{wks.location}/bin/" .. outputdir .. "/%{prj.name}")
 	objdir ("%{wks.location}/bin-int/" .. outputdir .. "/%{prj.name}")
@@ -28,3 +27,5 @@ project "ghua"
 	filter "configurations:Release"
 		runtime "Release"
 		optimize "on"
+
+	
