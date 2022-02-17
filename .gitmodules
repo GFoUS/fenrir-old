@@ -1,3 +1,6 @@
 [submodule "ghua/vendor/glfw"]
 	path = ghua/vendor/glfw
 	url = https://github.com/GFoUS/glfw
+[submodule "ghua/vendor/spdlog"]
+	path = ghua/vendor/spdlog
+	url = https://github.com/GFoUS/spdlog

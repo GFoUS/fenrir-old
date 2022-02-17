@@ -14,13 +14,12 @@ project "fenrir"
 
 	includedirs {
 		"src",
-		"../ghua/src"
+		"../ghua/src",
+		"../ghua/vendor/spdlog/include"
 	}
 
-	links  {
-		"ghua",
-		"pthread",
-        "dl"
+	links {
+		"ghua"
 	}
 
 	filter "configurations:Debug"
@@ -30,3 +29,10 @@ project "fenrir"
 	filter "configurations:Release"
 		runtime "Release"
 		optimize "on"
+
+
+	filter "system:linux"
+		links  {
+			"pthread",
+			"dl"
+		}

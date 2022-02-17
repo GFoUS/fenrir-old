@@ -13,7 +13,8 @@ project "ghua"
 
 	includedirs {
 		"src",
-		"vendor/glfw/include"
+		"vendor/glfw/include",
+		"vendor/spdlog/include"
 	}
 
 	links {

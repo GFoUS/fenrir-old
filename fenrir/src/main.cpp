@@ -1,6 +1,9 @@
 #include "ghua.h"
 
-int main() {
-	test();
-	return 0;
+class Fenrir : public GHUA::Application {
+
+};
+
+GHUA::Application* GHUA::CreateApplication() {
+	return new Fenrir();
 }
