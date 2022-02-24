@@ -1,11 +1,11 @@
 workspace "fenrir" 
-    configurations { "Debug", "Release" }
+    configurations { "debug", "release" }
     startproject "fenrir"
 
 project "fenrir"
     kind "ConsoleApp"
     language "C++"
-    targetdir "bin/%{cfg.buildcfg}"
+    targetdir "bin"
 
     files {
         "src/**.cpp",
@@ -24,6 +24,14 @@ project "fenrir"
         "dl",
         "vulkan"
     }
+
+    filter "configurations:debug"
+        defines { "FEN_DEBUG" }
+        symbols "On"
+
+    filter "configurations:release"
+        defines { "FEN_RELEASE" }
+        optimize "On"
 
 include "vendor/glfw"
 
