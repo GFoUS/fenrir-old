@@ -1,6 +1,0 @@
-#include "ghua/core/Application.h"
-#include "ghua/core/Event.h"
-#include "ghua/core/Entrypoint.h"
-#include "ghua/core/Layer.h"
-#include "ghua/core/Log.h"
-#include "ghua/graphics/Window.h"

@@ -1,13 +1,29 @@
-workspace "fenrir"
-	configurations { "Debug", "Release" }
-	architecture "x86_64"
-	startproject "fenrir"
-	flags {
-		"MultiProcessorCompile"
-	}
+workspace "fenrir" 
+    configurations { "Debug", "Release" }
+    startproject "fenrir"
 
-outputdir = "%{cfg.buildcfg}-%{cfg.system}-%{cfg.architecture}"
+project "fenrir"
+    kind "ConsoleApp"
+    language "C++"
+    targetdir "bin/%{cfg.buildcfg}"
 
-include "ghua/vendor/glfw"
-include "ghua"
-include "fenrir"
+    files {
+        "src/**.cpp",
+        "src/**.h"
+    }
+
+    includedirs {
+        "vendor/glfw/include",
+        "vendor/spdlog/include",
+        "src"
+    }
+
+    links {
+        "GLFW",
+        "pthread",
+        "dl",
+        "vulkan"
+    }
+
+include "vendor/glfw"
+
