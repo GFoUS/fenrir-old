@@ -10,7 +10,7 @@ Instance::Instance(const std::vector<const char*> extensions, const std::vector<
     appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
     appInfo.pEngineName = "Fenrir";
     appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
-    appInfo.apiVersion = VK_API_VERSION_1_1;
+    appInfo.apiVersion = VK_API_VERSION_1_3;
 
     // BASE CREATE INFO
     VkInstanceCreateInfo createInfo{};
@@ -86,8 +86,33 @@ Instance::Instance(const std::vector<const char*> extensions, const std::vector<
     if (result != VK_SUCCESS) {
         CRITICAL("Vulkan instance creation failed with error code: {}", result);
     } 
+
+    // PHYSICAL DEVICES
+    uint32_t numPhysicalDevices;
+    vkEnumeratePhysicalDevices(this->instance, &numPhysicalDevices, nullptr);
+    std::vector<VkPhysicalDevice> physicalDevicesRaw(numPhysicalDevices);
+    vkEnumeratePhysicalDevices(this->instance, &numPhysicalDevices, physicalDevicesRaw.data());
+
+    this->physicalDevices.resize(numPhysicalDevices);
+    for (auto& physicalDeviceRaw : physicalDevicesRaw) {
+        this->physicalDevices.push_back(new PhysicalDevice(physicalDeviceRaw));
+
+        #ifdef FEN_DEBUG
+            VkPhysicalDeviceProperties properties;
+            vkGetPhysicalDeviceProperties(physicalDeviceRaw, &properties);
+            INFO("Found device: {}", properties.deviceName);
+        #endif
+    }
 }
 
 Instance::~Instance() {
     vkDestroyInstance(this->instance, nullptr);
+
+    for (auto physicalDevice : this->physicalDevices) {
+        delete physicalDevice;
+    }
+}
+
+std::vector<PhysicalDevice*> Instance::GetPhysicalDevices() {
+    return this->physicalDevices;
 }
