@@ -13,6 +13,10 @@ public:
 
     bool ShouldClose();
 
+    inline GLFWwindow* GetRawWindow() {
+        return this->window;
+    }
+
     virtual void OnTick();
     virtual void OnEvent(Event* event);
 private:

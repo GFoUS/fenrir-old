@@ -1,118 +1,117 @@
 #include "instance.h"
-
 #include "GLFW/glfw3.h"
+namespace tk
+{
+    VkInstance GetInstance()
+    {
+        VkApplicationInfo appInfo{};
+        appInfo.apiVersion = VK_API_VERSION_1_3;
+        appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
+        appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
+        appInfo.pApplicationName = "fenrir";
+        appInfo.pEngineName = "fenrir";
+        appInfo.pNext = nullptr;
+        appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
 
-Instance::Instance(const std::vector<const char*> extensions, const std::vector<const char*> validationLayers) {
-    // APP INFO
-    VkApplicationInfo appInfo{};
-    appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-    appInfo.pApplicationName = "Fenrir";
-    appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
-    appInfo.pEngineName = "Fenrir";
-    appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
-    appInfo.apiVersion = VK_API_VERSION_1_3;
+        std::vector<const char *> extensions = _GetExtensions();
+#ifdef FEN_DEBUG
+        std::vector<const char *> validationLayers = _GetValidationLayers();
+#else
+        std::vector<const char *> validationLayers;
+#endif
 
-    // BASE CREATE INFO
-    VkInstanceCreateInfo createInfo{};
-    createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-    createInfo.pApplicationInfo = &appInfo;
+        VkInstanceCreateInfo createInfo{};
+        createInfo.enabledExtensionCount = extensions.size();
+        createInfo.enabledLayerCount = validationLayers.size();
+        createInfo.flags = 0;
+        createInfo.pApplicationInfo = &appInfo;
+        createInfo.pNext = nullptr;
+        createInfo.ppEnabledExtensionNames = extensions.data();
+        createInfo.ppEnabledLayerNames = validationLayers.data();
+        createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
 
-    // EXTENSIONS
-    uint32_t numAvailableExtensions = 0;
-    vkEnumerateInstanceExtensionProperties(nullptr, &numAvailableExtensions, nullptr);
-    std::vector<VkExtensionProperties> availableExtensions(numAvailableExtensions);
-    vkEnumerateInstanceExtensionProperties(nullptr, &numAvailableExtensions, availableExtensions.data());
-
-    // Check that required extensions are present
-    for (const auto& extension : extensions) {
-        bool found = false;
-
-        for (const auto& available : availableExtensions) {
-            if (!strcmp(available.extensionName, extension)) {
-                found = true;
-                DEBUG("Found extension {}", extension);
-            }
+        VkInstance instance;
+        VkResult result = vkCreateInstance(&createInfo, nullptr, &instance);
+        if (result != VK_SUCCESS)
+        {
+            CRITICAL("Vulkan instance creation failed");
         }
 
-        if (!found) {
-            CRITICAL("Instance extension with name {} could not be found", extension);
-        }
+        return instance;
     }
 
-    createInfo.enabledExtensionCount = extensions.size();
-    createInfo.ppEnabledExtensionNames = extensions.data();
+    std::vector<const char *> _GetExtensions()
+    {
+        // DEFINE REQUIRED EXTENSIONS HERE
+        std::vector<const char *> extensions = {
 
-    // VALIDATION LAYERS
-    bool enableLayers;
+        };
 
-    #if FEN_DEBUG
-        enableLayers = true;
-    #else
-        enableLayers = false;
-    #endif
+        uint32_t numGlfwExtensions;
+        const char **glfwExtensions = glfwGetRequiredInstanceExtensions(&numGlfwExtensions);
 
-    uint32_t numAvailableLayers = 0;
-    vkEnumerateInstanceLayerProperties(&numAvailableLayers, nullptr);
-    std::vector<VkLayerProperties> availableLayers(numAvailableLayers);
-    vkEnumerateInstanceLayerProperties(&numAvailableLayers, availableLayers.data());
+        for (uint32_t i = 0; i < numGlfwExtensions; i++)
+        {
+            extensions.push_back(glfwExtensions[i]);
+        }
 
-    if (enableLayers) {
-        for (const char* layer : validationLayers) {
+        uint32_t numAvailableExtensions;
+        vkEnumerateInstanceExtensionProperties(nullptr, &numAvailableExtensions, nullptr);
+        std::vector<VkExtensionProperties> availableExtensions(numAvailableExtensions);
+        vkEnumerateInstanceExtensionProperties(nullptr, &numAvailableExtensions, availableExtensions.data());
+
+        for (auto &extension : extensions)
+        {
             bool found = false;
 
-            for (const VkLayerProperties& available : availableLayers) {
-                if (!strcmp(available.layerName, layer)) {
+            for (auto &available : availableExtensions)
+            {
+                if (strcmp(extension, available.extensionName) == 0)
+                {
+                    INFO("Found extension: {}", extension);
                     found = true;
-                    DEBUG("Found validation layer: {}", layer);
                 }
             }
 
-            if (!found) {
-                WARN("Validation layer with name {} could not be found, no validation layers will be enabled", layer);
-                break;
+            if (!found)
+            {
+                CRITICAL("Required extension is not present: {}", extension);
             }
         }
 
-        createInfo.enabledLayerCount = validationLayers.size();
-        createInfo.ppEnabledLayerNames = validationLayers.data();
+        return extensions;
     }
 
-    if (createInfo.ppEnabledLayerNames == nullptr) {
-        createInfo.enabledLayerCount = 0;
+    std::vector<const char *> _GetValidationLayers()
+    {
+        std::vector<const char *> validationLayers = {
+            "VK_LAYER_KHRONOS_validation"};
+
+        uint32_t numAvailableLayers;
+        vkEnumerateInstanceLayerProperties(&numAvailableLayers, nullptr);
+        std::vector<VkLayerProperties> availableLayers(numAvailableLayers);
+        vkEnumerateInstanceLayerProperties(&numAvailableLayers, availableLayers.data());
+
+        for (auto &layer : validationLayers)
+        {
+            bool found = false;
+
+            for (auto &available : availableLayers)
+            {
+                if (strcmp(layer, available.layerName) == 0)
+                {
+                    INFO("Found validation layer: {}", layer);
+                    found = true;
+                }
+            }
+
+            if (!found)
+            {
+                WARN("Validation layer is not present: {}, no validation layers will be activated", layer);
+                return {};
+            }
+        }
+
+        return validationLayers;
     }
-
-    // CREATE INSTANCE
-    VkResult result = vkCreateInstance(&createInfo, nullptr, &this->instance);
-    if (result != VK_SUCCESS) {
-        CRITICAL("Vulkan instance creation failed with error code: {}", result);
-    } 
-
-    // PHYSICAL DEVICES
-    uint32_t numPhysicalDevices;
-    vkEnumeratePhysicalDevices(this->instance, &numPhysicalDevices, nullptr);
-    std::vector<VkPhysicalDevice> physicalDevicesRaw(numPhysicalDevices);
-    vkEnumeratePhysicalDevices(this->instance, &numPhysicalDevices, physicalDevicesRaw.data());
-
-    this->physicalDevices.resize(numPhysicalDevices);
-    for (auto& physicalDeviceRaw : physicalDevicesRaw) {
-        this->physicalDevices.push_back(new PhysicalDevice(physicalDeviceRaw));
-
-        #ifdef FEN_DEBUG
-            VkPhysicalDeviceProperties properties;
-            vkGetPhysicalDeviceProperties(physicalDeviceRaw, &properties);
-            INFO("Found device: {}", properties.deviceName);
-        #endif
-    }
-}
-
-Instance::~Instance() {
-    vkDestroyInstance(this->instance, nullptr);
-
-    for (auto physicalDevice : this->physicalDevices) {
-        delete physicalDevice;
-    }
-}
-
-std::vector<PhysicalDevice*> Instance::GetPhysicalDevices() {
-    return this->physicalDevices;
 }

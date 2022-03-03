@@ -2,7 +2,7 @@
 
 #include "core/core.h"
 
-Renderer::Renderer() {
+Renderer::Renderer(Window* window) : context(window) {
 }
 
 Renderer::~Renderer() {

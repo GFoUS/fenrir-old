@@ -2,7 +2,7 @@
 
 #include "algorithm"
 
-Application::Application() : window(&this->eventBus) {
+Application::Application() : window(&this->eventBus), renderer(&this->window) {
     this->layerStack.push_back(&this->window);
 }
 

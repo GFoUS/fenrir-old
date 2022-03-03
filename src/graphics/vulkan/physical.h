@@ -1,13 +1,19 @@
 #pragma once
 
+#include "core/core.h"
 #include "vulkan/vulkan.h"
 
-class PhysicalDevice {
-public:
-    PhysicalDevice(VkPhysicalDevice physical) : physical(physical) {};
-    ~PhysicalDevice() {};
+namespace tk
+{
+    struct QueueFamily
+    {
+        uint32_t index;
+        VkQueueFamilyProperties *properties;
+    };
 
-    bool GetIsSuitable();
-private:
-    VkPhysicalDevice physical;
-};
+    VkPhysicalDevice PickPhysical(VkInstance instance);
+    QueueFamily GetGraphicsQueueFamily(VkPhysicalDevice physical);
+    QueueFamily GetPresentQueueFamily(VkPhysicalDevice physical, VkSurfaceKHR surface);
+
+    bool _HasGraphicsQueue(VkPhysicalDevice physical);
+}

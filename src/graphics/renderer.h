@@ -1,10 +1,11 @@
 #pragma once
 
 #include "vulkan/context.h"
+#include "window.h"
 
 class Renderer {
 public:
-    Renderer();
+    Renderer(Window* window);
     ~Renderer();
 private:
     void CreateInstance();
