@@ -11,7 +11,7 @@ namespace tk
         VkQueueFamilyProperties *properties;
     };
 
-    VkPhysicalDevice PickPhysical(VkInstance instance);
+    VkPhysicalDevice PickPhysical(VkInstance instance, VkSurfaceKHR surface);
     QueueFamily GetGraphicsQueueFamily(VkPhysicalDevice physical);
     QueueFamily GetPresentQueueFamily(VkPhysicalDevice physical, VkSurfaceKHR surface);
 

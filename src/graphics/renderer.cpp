@@ -2,9 +2,11 @@
 
 #include "core/core.h"
 
-Renderer::Renderer(Window* window) : context(window) {
-}
+Renderer::Renderer(Window *window) : context(window) {}
 
-Renderer::~Renderer() {
-   
+Renderer::~Renderer() {}
+
+void Renderer::OnTick()
+{
+    this->context.DrawFrame();
 }

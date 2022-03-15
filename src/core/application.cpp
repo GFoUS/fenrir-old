@@ -4,6 +4,7 @@
 
 Application::Application() : window(&this->eventBus), renderer(&this->window) {
     this->layerStack.push_back(&this->window);
+    this->layerStack.push_back(&this->renderer);
 }
 
 void Application::Run() {

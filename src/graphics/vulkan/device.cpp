@@ -77,7 +77,7 @@ namespace tk
     {
         // DEFINE REQUIRED DEVICE EXTENSIONS HERE
         std::vector<const char *> extensions = {
-
+            VK_KHR_SWAPCHAIN_EXTENSION_NAME
         };
 
         uint32_t numAvailableExtensions;

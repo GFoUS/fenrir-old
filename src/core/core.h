@@ -4,6 +4,7 @@
 #include "string"
 #include "iostream"
 #include "set"
+#include "memory"
 #include "log.h"
 
 #define WIDTH 640

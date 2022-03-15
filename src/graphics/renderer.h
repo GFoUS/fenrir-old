@@ -1,12 +1,15 @@
 #pragma once
 
 #include "vulkan/context.h"
+#include "vulkan/shader.h"
 #include "window.h"
 
-class Renderer {
+class Renderer : public Layer {
 public:
     Renderer(Window* window);
     ~Renderer();
+
+    virtual void OnTick() override;
 private:
     void CreateInstance();
 

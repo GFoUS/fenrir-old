@@ -5,6 +5,7 @@ workspace "fenrir"
 project "fenrir"
     kind "ConsoleApp"
     language "C++"
+    cppdialect "C++17"
     targetdir "bin"
 
     files {

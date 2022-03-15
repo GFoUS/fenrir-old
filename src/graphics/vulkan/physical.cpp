@@ -1,8 +1,9 @@
 #include "physical.h"
+#include "swapchain.h"
 
 namespace tk
 {
-    VkPhysicalDevice PickPhysical(VkInstance instance)
+    VkPhysicalDevice PickPhysical(VkInstance instance, VkSurfaceKHR surface)
     {
         uint32_t numPhysicalDevices;
         vkEnumeratePhysicalDevices(instance, &numPhysicalDevices, nullptr);
@@ -14,7 +15,10 @@ namespace tk
             VkPhysicalDeviceProperties properties;
             vkGetPhysicalDeviceProperties(physical, &properties);
 
-            if (_HasGraphicsQueue(physical))
+            SwapchainCapabilities swapchain = GetSwapchainCapabilities(physical, surface);
+            bool isSwapchainSuitable = !swapchain.formats.empty() && !swapchain.presentModes.empty();
+
+            if (_HasGraphicsQueue(physical) && isSwapchainSuitable)
             {
                 INFO("Picking device: {}", properties.deviceName);
                 return physical;
