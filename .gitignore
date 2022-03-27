@@ -6,4 +6,4 @@ obj/
 fenrir.sln
 **/*.vcxproj
 **/*.vcxproj.user
-**/*.make
+build/
