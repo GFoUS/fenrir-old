@@ -7,3 +7,4 @@ fenrir.sln
 **/*.vcxproj
 **/*.vcxproj.user
 build/
+.cache

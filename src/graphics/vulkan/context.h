@@ -1,34 +1,29 @@
-#include "core/core.h"
-#include "graphics/window.h"
 #include "vulkan/vulkan.h"
-#include "swapchain.h"
+#include "../window.h"
+#include "core/core.h"
+#include "utils.h"
+#include <vulkan/vulkan_core.h>
 
 struct Context {
     Context(Window* window);
     ~Context();
 
-    Window* window;
+    void CreateDevice();
+    void CreateSwapchain();
+    void CreatePipeline();
+
     VkInstance instance;
     VkPhysicalDevice physical;
+    QueueFamilies queueFamilies;
     VkDevice device;
-    VkQueue graphicsQueue;
-    VkQueue presentQueue;
+    VkQueue graphics;
+    VkQueue present;
+    
+    Window* window;
     VkSurfaceKHR surface;
-    tk::Swapchain swapchain;
+    VkSurfaceFormatKHR format;
+    VkExtent2D extent;
+    VkSwapchainKHR swapchain;
     std::vector<VkImage> images;
     std::vector<VkImageView> imageViews;
-    VkRenderPass renderPass;
-    VkPipelineLayout layout;
-    VkPipeline pipeline;
-    std::vector<VkFramebuffer> framebuffers;
-    VkCommandPool commandPool;
-    VkCommandBuffer buffer;
-
-    VkSemaphore imageAvailable;
-    VkSemaphore renderFinished;
-    VkFence inFlight;
-
-    void DrawFrame();
-private:
-    void CreateSyncObjects();
 };

@@ -1,21 +1,22 @@
 cmake_minimum_required(VERSION 3.10)
 
 project(fenrir)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_subdirectory(vendor/spdlog)
 add_subdirectory(vendor/glfw)
 
 find_package(Vulkan REQUIRED)
 
-file(GLOB BLAST_SRC
+file(GLOB SRC
     "src/**/**/*.cpp"
     "src/**/*.cpp"
     "src/*.cpp"
 )
 
 include_directories("src")
+include_directories("vendor/glm")
 
-message("${BLAST_SRC}")
-
-add_executable(blast ${BLAST_SRC})
-target_link_libraries(blast PRIVATE spdlog::spdlog glfw vulkan)
+add_executable(fenrir ${SRC})
+target_link_libraries(fenrir PRIVATE spdlog::spdlog glfw vulkan)

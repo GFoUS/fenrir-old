@@ -1,158 +1,240 @@
 #include "context.h"
-#include "instance.h"
-#include "physical.h"
-#include "device.h"
-#include "surface.h"
-#include "renderpass.h"
-#include "layout.h"
-#include "pipeline.h"
-#include "shader.h"
-#include "framebuffer.h"
-#include "command.h"
+#include <vulkan/vulkan_core.h>
+#define GLFW_INCLUDE_VULKAN
+#include "GLFW/glfw3.h"
+#include "graphics/vulkan/utils.h"
 
-Context::Context(Window *window)
-{
-    this->window = window;
-    this->instance = tk::GetInstance();
-    INFO("Instance created");
-    this->surface = tk::GetSurface(this->instance, this->window);
-    INFO("Surface created");
-    this->physical = tk::PickPhysical(this->instance, this->surface);
-    INFO("Physical device picked");
-    this->device = tk::GetDevice(this->physical, this->surface);
-    INFO("Logical device created");
-    this->graphicsQueue = tk::GetGraphicsQueue(this->physical, this->device);
-    INFO("Got graphics queue");
+const std::vector<const char*> instanceExtensions = {};
+const std::vector<const char*> validationLayers = {"VK_LAYER_KHRONOS_validation"};
+const std::vector<const char*> deviceExtensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
 
-    this->presentQueue = tk::GetPresentQueue(this->physical, this->device, this->surface);
-    INFO("Got present queue");
-    this->swapchain = tk::GetSwapchain(this->physical, this->surface, this->device, this->window->GetRawWindow());
-    INFO("Swapchain created");
-    this->images = tk::GetSwapchainImages(this->device, this->swapchain.swapchain);
-    INFO("Created images");
-    this->imageViews = tk::GetSwapchainImageViews(this->device, this->images, this->swapchain.format);
-    INFO("Created image views");
-
-    tk::Shader vertex("shaders/vert.spv", tk::ShaderType::VERTEX, this->device);
-    tk::Shader fragment("shaders/frag.spv", tk::ShaderType::FRAGMENT, this->device);
-    std::vector<VkPipelineShaderStageCreateInfo> shaderStages = {vertex.GetStageInfo(), fragment.GetStageInfo()};
-    INFO("Created shaders");
-
-    this->renderPass = tk::GetRenderPass(this->device, this->swapchain);
-    INFO("Created render pass");
-    this->layout = tk::GetPipelineLayout(this->device);
-    INFO("Created pipeline layout");
-    this->pipeline = tk::GetPipeline(this->device, this->swapchain, shaderStages, this->layout, this->renderPass);
-    INFO("Created pipeline");
-    vertex.DestroyModule(this->device);
-    fragment.DestroyModule(this->device);
-
-    this->framebuffers = tk::GetFramebuffers(this->device, this->imageViews, this->renderPass, this->swapchain.extent);
-    INFO("Created framebuffers");
-
-    this->commandPool = tk::CreateCommandPool(this->device, this->physical);
-    this->buffer = tk::CreateCommandBuffer(this->device, this->commandPool);
-    INFO("Created command buffer");
-
-    this->CreateSyncObjects();
+Context::Context(Window* window) : window(window) {
+    this->CreateDevice();
+    this->CreateSwapchain();
 }
 
-Context::~Context()
-{
-    vkDeviceWaitIdle(this->device);
-
-    vkDestroySemaphore(this->device, this->imageAvailable, nullptr);
-    vkDestroySemaphore(this->device, this->renderFinished, nullptr);
-    vkDestroyFence(this->device, this->inFlight, nullptr);
-
-    vkDestroyCommandPool(this->device, this->commandPool, nullptr);
-    for (auto &framebuffer : this->framebuffers)
-    {
-        vkDestroyFramebuffer(this->device, framebuffer, nullptr);
-    }
-    vkDestroyPipeline(this->device, this->pipeline, nullptr);
-    vkDestroyPipelineLayout(this->device, this->layout, nullptr);
-    vkDestroyRenderPass(this->device, this->renderPass, nullptr);
-    for (auto &imageView : this->imageViews)
-    {
+Context::~Context() {
+    for (auto& imageView : this->imageViews) {
         vkDestroyImageView(this->device, imageView, nullptr);
     }
-    vkDestroySwapchainKHR(this->device, this->swapchain.swapchain, nullptr);
-    vkDestroySurfaceKHR(this->instance, this->surface, nullptr);
+    vkDestroySwapchainKHR(this->device, this->swapchain, nullptr);
     vkDestroyDevice(this->device, nullptr);
+    vkDestroySurfaceKHR(this->instance, this->surface, nullptr);
     vkDestroyInstance(this->instance, nullptr);
 }
 
-void Context::DrawFrame()
-{
-    vkWaitForFences(this->device, 1, &this->inFlight, VK_TRUE, UINT64_MAX);
-    vkResetFences(this->device, 1, &this->inFlight);
+void Context::CreateDevice() {
+    // Create Instance
+    VkApplicationInfo appInfo{};
+    appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+    appInfo.pApplicationName = "Fenrir";
+    appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
+    appInfo.pEngineName = "Fenrir";
+    appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
+    appInfo.apiVersion = VK_API_VERSION_1_0;
 
-    uint32_t imageIndex;
-    VkResult imageAquired = vkAcquireNextImageKHR(this->device, this->swapchain.swapchain, UINT64_MAX, this->imageAvailable, nullptr, &imageIndex);
-    if (imageAquired != VK_SUCCESS)
-    {
-        CRITICAL("Failed to aquire new image with error code: {}", imageAquired);
+    uint32_t numAvailableInstanceExtensions;
+    vkEnumerateInstanceExtensionProperties(nullptr, &numAvailableInstanceExtensions, nullptr);
+    std::vector<VkExtensionProperties> availableInstanceExtensions(numAvailableInstanceExtensions);
+    vkEnumerateInstanceExtensionProperties(nullptr, &numAvailableInstanceExtensions, availableInstanceExtensions.data());
+    uint32_t numAvailableLayers;
+    vkEnumerateInstanceLayerProperties(&numAvailableLayers, nullptr);
+    std::vector<VkLayerProperties> availableLayers(numAvailableLayers);
+    vkEnumerateInstanceLayerProperties(&numAvailableLayers, availableLayers.data());
+
+    std::vector<const char*> extensions = instanceExtensions;
+    uint32_t numGlfwExtensions;
+    const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&numGlfwExtensions);
+    for (uint32_t i = 0; i < numGlfwExtensions; i++) {
+        extensions.push_back(glfwExtensions[i]);
+    } 
+
+    for (const auto& extension : extensions) {
+        bool found = false;
+        for (const auto& available : availableInstanceExtensions) {
+            if (strcmp(available.extensionName, extension) == 0) {
+                found = true;
+            }
+        }
+        
+        if (!found) {
+            CRITICAL("Missing instance extension: {}", extension);
+        }
     }
 
-    vkResetCommandBuffer(this->buffer, 0);
-    tk::RecordCommandBuffer(this->buffer, this->framebuffers[imageIndex], this->swapchain.extent, this->renderPass, this->pipeline);
-
-    VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-
-    VkSubmitInfo submitInfo{};
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &this->buffer;
-    submitInfo.pNext = nullptr;
-    submitInfo.pSignalSemaphores = &this->renderFinished;
-    submitInfo.pWaitDstStageMask = &waitStage;
-    submitInfo.pWaitSemaphores = &this->imageAvailable;
-    submitInfo.signalSemaphoreCount = 1;
-    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submitInfo.waitSemaphoreCount = 1;
-
-    VkResult submitted = vkQueueSubmit(this->graphicsQueue, 1, &submitInfo, this->inFlight);
-    if (submitted != VK_SUCCESS)
-    {
-        CRITICAL("Failed to submit command buffer with error code: {}", submitted);
+    bool usingValidationLayers = true;
+    for (const auto& layer : validationLayers) {
+        bool found = false;
+        for (const auto& available : availableLayers) {
+            if (strcmp(available.layerName, layer) == 0) {
+                found = true;
+            }
+        }
+        
+        if (!found) {
+            WARN("Missing validation layer: {}", layer);
+            usingValidationLayers = true;
+        }
     }
 
-    VkPresentInfoKHR presentInfo{};
-    presentInfo.pImageIndices = &imageIndex;
-    presentInfo.pNext = nullptr;
-    presentInfo.pResults = nullptr;
-    presentInfo.pSwapchains = &this->swapchain.swapchain;
-    presentInfo.pWaitSemaphores = &this->renderFinished;
-    presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-    presentInfo.swapchainCount = 1;
-    presentInfo.waitSemaphoreCount = 1;
-    VkResult presented = vkQueuePresentKHR(this->presentQueue, &presentInfo);
-    if (presented != VK_SUCCESS)
-    {
-        CRITICAL("Failed to present with error code: {}", presented);
+    VkInstanceCreateInfo instanceInfo{};
+    instanceInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+    instanceInfo.pApplicationInfo = &appInfo;
+    instanceInfo.enabledExtensionCount = extensions.size();
+    instanceInfo.enabledLayerCount = usingValidationLayers ? validationLayers.size() : 0;
+    instanceInfo.ppEnabledExtensionNames = extensions.data();
+    instanceInfo.ppEnabledLayerNames = usingValidationLayers ? validationLayers.data() : nullptr;
+    
+    VkResult instanceResult = vkCreateInstance(&instanceInfo, nullptr, &this->instance);
+    if (instanceResult != VK_SUCCESS) {
+        CRITICAL("Failed to create instance with error code: {}", instanceResult);
     }
-}
+    INFO("Vulkan instance created");
 
-void Context::CreateSyncObjects()
-{
-    VkSemaphoreCreateInfo semInfo{};
-    semInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+    // Create surface
+    VkResult surfaceResult = glfwCreateWindowSurface(this->instance, this->window->GetRawWindow(), nullptr, &this->surface);
+    if (surfaceResult != VK_SUCCESS) {
+        CRITICAL("Surface creation failed with error code: {}", surfaceResult);
+    }
+    INFO("Vulkan surface created");   
 
-    VkFenceCreateInfo fenceInfo{};
-    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-    fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+    // Find physical device
+    uint32_t numDevices;
+    vkEnumeratePhysicalDevices(this->instance, &numDevices, nullptr);
+    std::vector<VkPhysicalDevice> physicalDevices(numDevices);
+    vkEnumeratePhysicalDevices(this->instance, &numDevices, physicalDevices.data());
 
-    VkResult sem1 = vkCreateSemaphore(this->device, &semInfo, nullptr, &this->imageAvailable);
-    VkResult sem2 = vkCreateSemaphore(this->device, &semInfo, nullptr, &this->renderFinished);
-    VkResult fence = vkCreateFence(this->device, &fenceInfo, nullptr, &this->inFlight);
+    this->physical = PickPhysicalDevice(this, physicalDevices, deviceExtensions);
+    this->queueFamilies = FindQueueFamilies(this);
 
-    if (sem1 != VK_SUCCESS || sem2 != VK_SUCCESS)
-    {
-        CRITICAL("Semaphore creation failed with error code: {}", sem1); // Chances are that they failed for the same reason
+    // Create device
+    float queuePriority = 1.0f;
+    std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
+    for (uint32_t queueFamily : this->queueFamilies.GetUniques()) {
+        VkDeviceQueueCreateInfo queueCreateInfo{};
+        queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        queueCreateInfo.queueCount = 1;
+        queueCreateInfo.queueFamilyIndex = queueFamily;
+        queueCreateInfo.pQueuePriorities = &queuePriority;
+
+        queueCreateInfos.push_back(queueCreateInfo);
+    }
+    
+    VkPhysicalDeviceFeatures deviceFeatures{};
+
+    VkDeviceCreateInfo deviceInfo{};
+    deviceInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+    deviceInfo.pQueueCreateInfos = queueCreateInfos.data();
+    deviceInfo.queueCreateInfoCount = queueCreateInfos.size();
+    deviceInfo.pEnabledFeatures = &deviceFeatures;
+    deviceInfo.enabledLayerCount = usingValidationLayers ? validationLayers.size() : 0;
+    deviceInfo.ppEnabledLayerNames = usingValidationLayers ? validationLayers.data() : nullptr;
+    deviceInfo.enabledExtensionCount = deviceExtensions.size();
+    deviceInfo.ppEnabledExtensionNames = deviceExtensions.data();
+
+    VkResult deviceResult = vkCreateDevice(this->physical, &deviceInfo, nullptr, &this->device);
+    if (deviceResult != VK_SUCCESS) {
+        CRITICAL("Device create failed with error code: {}", deviceResult);
+    }
+    INFO("Vulkan device created");
+
+    vkGetDeviceQueue(this->device, this->queueFamilies.graphics.value(), 0, &this->graphics);
+    vkGetDeviceQueue(this->device, this->queueFamilies.present.value(), 0, &this->present);
+}   
+
+void Context::CreateSwapchain() {
+    SwapchainDetails details = GetSwapchainDetails(this);
+
+    bool formatFound = false;
+    for (const auto& availableFormat : details.formats) {
+        if (availableFormat.format == VK_FORMAT_B8G8R8A8_SRGB && availableFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+            this->format = availableFormat;
+            formatFound = true;
+        }
+    }
+    if (!formatFound) this->format = details.formats[0];
+
+    if (details.capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max()) {
+        this->extent = details.capabilities.currentExtent;
+    } else {
+        int width, height;
+        glfwGetFramebufferSize(window->GetRawWindow(), &width, &height);
+
+        VkExtent2D actualExtent = {
+            static_cast<uint32_t>(width),
+            static_cast<uint32_t>(height)
+        };
+
+        actualExtent.width = std::clamp(actualExtent.width, details.capabilities.minImageExtent.width, details.capabilities.maxImageExtent.width);
+        actualExtent.height = std::clamp(actualExtent.height, details.capabilities.minImageExtent.height, details.capabilities.maxImageExtent.height);
+
+        this->extent = actualExtent;
     }
 
-    if (fence != VK_SUCCESS)
-    {
-        CRITICAL("Fence creation failed with error code: {}", fence);
+    uint32_t imageCount = details.capabilities.minImageCount + 1;
+    if (details.capabilities.maxImageCount > 0 && imageCount > details.capabilities.maxImageCount) {
+        imageCount = details.capabilities.maxImageCount;
+    }
+
+    VkSwapchainCreateInfoKHR swapchainInfo{};
+    swapchainInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+    swapchainInfo.surface = this->surface;
+    swapchainInfo.minImageCount = imageCount;
+    swapchainInfo.imageFormat = this->format.format;
+    swapchainInfo.imageColorSpace = this->format.colorSpace;
+    swapchainInfo.imageExtent = this->extent;
+    swapchainInfo.imageArrayLayers = 1;
+    swapchainInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+
+    if (this->queueFamilies.graphics.value() != this->queueFamilies.present.value()) {
+        uint32_t indicies[2] = {this->queueFamilies.graphics.value(), this->queueFamilies.present.value()};
+        swapchainInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
+        swapchainInfo.queueFamilyIndexCount = 2;
+        swapchainInfo.pQueueFamilyIndices = indicies;
+    } else {
+        swapchainInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        swapchainInfo.queueFamilyIndexCount = 0;
+        swapchainInfo.pQueueFamilyIndices = nullptr;
+    }
+
+    swapchainInfo.preTransform = details.capabilities.currentTransform;
+    swapchainInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    swapchainInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR;
+    swapchainInfo.clipped = VK_TRUE;
+    swapchainInfo.oldSwapchain = nullptr;
+
+    VkResult swapchainResult = vkCreateSwapchainKHR(this->device, &swapchainInfo, nullptr, &this->swapchain);
+    if (swapchainResult != VK_SUCCESS) {
+        CRITICAL("Swapchain creation failed with error code: {}", swapchainResult);
+    }
+
+    INFO("Vulkan swapchain created");
+
+    vkGetSwapchainImagesKHR(this->device, this->swapchain, &imageCount, nullptr);
+    this->images.resize(imageCount);
+    vkGetSwapchainImagesKHR(this->device, this->swapchain, &imageCount, this->images.data());
+
+    for (const auto& image : this->images) {
+        VkImageViewCreateInfo imageViewInfo{};
+        imageViewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        imageViewInfo.image = image;
+        imageViewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        imageViewInfo.format = this->format.format;
+        imageViewInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+        imageViewInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+        imageViewInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+        imageViewInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+        imageViewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        imageViewInfo.subresourceRange.baseMipLevel = 0;
+        imageViewInfo.subresourceRange.levelCount = 1;
+        imageViewInfo.subresourceRange.baseArrayLayer = 0;
+        imageViewInfo.subresourceRange.layerCount = 1;
+
+        VkImageView imageView;
+        VkResult imageViewResult = vkCreateImageView(this->device, &imageViewInfo, nullptr, &imageView);
+        if (imageViewResult != VK_SUCCESS) {
+            CRITICAL("Image view creation failed with error code: {}", imageViewResult);
+        }
+        this->imageViews.push_back(imageView);
     }
 }

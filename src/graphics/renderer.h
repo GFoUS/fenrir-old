@@ -1,7 +1,6 @@
 #pragma once
 
 #include "vulkan/context.h"
-#include "vulkan/shader.h"
 #include "window.h"
 
 class Renderer : public Layer {
