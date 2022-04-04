@@ -1,4 +1,5 @@
 #include "context.h"
+#include "graphics/vulkan/shader.h"
 #include <vulkan/vulkan_core.h>
 #define GLFW_INCLUDE_VULKAN
 #include "GLFW/glfw3.h"
@@ -11,9 +12,33 @@ const std::vector<const char*> deviceExtensions = {VK_KHR_SWAPCHAIN_EXTENSION_NA
 Context::Context(Window* window) : window(window) {
     this->CreateDevice();
     this->CreateSwapchain();
+    this->CreatePipeline();
+
+    VkSemaphoreCreateInfo semaphoreInfo{};
+    semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+    VkFenceCreateInfo fenceInfo{};
+    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+    if (vkCreateSemaphore(this->device, &semaphoreInfo, nullptr, &this->imageAvailableSemaphore) != VK_SUCCESS ||
+        vkCreateSemaphore(this->device, &semaphoreInfo, nullptr, &this->renderFinishedSemaphore) != VK_SUCCESS ||
+        vkCreateFence(this->device, &fenceInfo, nullptr, &this->inFlightFence) != VK_SUCCESS){
+
+        CRITICAL("failed to create syncronization objects");
+    }
 }
 
 Context::~Context() {
+    vkDeviceWaitIdle(this->device);
+    vkDestroySemaphore(this->device, this->imageAvailableSemaphore, nullptr);
+    vkDestroySemaphore(this->device, this->renderFinishedSemaphore, nullptr);
+    vkDestroyFence(this->device, this->inFlightFence, nullptr);
+    vkDestroyCommandPool(this->device, this->commandPool, nullptr);
+    for (auto& framebuffer : this->framebuffers) {
+        vkDestroyFramebuffer(this->device, framebuffer, nullptr);
+    }
+    vkDestroyPipeline(this->device, this->pipeline, nullptr);
+    vkDestroyRenderPass(this->device, this->renderPass, nullptr);
+    vkDestroyPipelineLayout(this->device, this->layout, nullptr);
     for (auto& imageView : this->imageViews) {
         vkDestroyImageView(this->device, imageView, nullptr);
     }
@@ -236,5 +261,239 @@ void Context::CreateSwapchain() {
             CRITICAL("Image view creation failed with error code: {}", imageViewResult);
         }
         this->imageViews.push_back(imageView);
+    }
+}
+
+void Context::CreatePipeline() {
+    Shader vertex(this->device, "shaders/vert.spv", VERTEX);
+    Shader fragment(this->device, "shaders/frag.spv", FRAGMENT);
+    VkPipelineShaderStageCreateInfo shaderStages[2] = {vertex.GetStageInfo(), fragment.GetStageInfo()};
+
+    VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
+    vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    vertexInputInfo.vertexBindingDescriptionCount = 0;
+    vertexInputInfo.vertexAttributeDescriptionCount = 0;
+
+    VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+    inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    inputAssembly.primitiveRestartEnable = VK_FALSE;
+
+    VkViewport viewport{};
+    viewport.x = 0.0f;
+    viewport.y = 0.0f;
+    viewport.width = (float) this->extent.width;
+    viewport.height = (float) this->extent.height;
+    viewport.minDepth = 0.0f;
+    viewport.maxDepth = 1.0f;
+
+    VkRect2D scissor{};
+    scissor.offset = {0, 0};
+    scissor.extent = extent;
+
+    VkPipelineViewportStateCreateInfo viewportState{};
+    viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    viewportState.viewportCount = 1;
+    viewportState.pViewports = &viewport;
+    viewportState.scissorCount = 1;
+    viewportState.pScissors = &scissor;
+
+    VkPipelineRasterizationStateCreateInfo rasterizer{};
+    rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rasterizer.depthClampEnable = VK_FALSE;
+    rasterizer.rasterizerDiscardEnable = VK_FALSE;
+    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterizer.lineWidth = 1.0f;
+    rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
+    rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;
+    rasterizer.depthBiasEnable = VK_FALSE;
+
+    VkPipelineMultisampleStateCreateInfo multisampling{};
+    multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    multisampling.sampleShadingEnable = VK_FALSE;
+    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    VkPipelineColorBlendAttachmentState colorBlendAttachment{};
+    colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    colorBlendAttachment.blendEnable = VK_FALSE;
+
+    VkPipelineColorBlendStateCreateInfo colorBlending{};
+    colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    colorBlending.logicOpEnable = VK_FALSE;
+    colorBlending.attachmentCount = 1;
+    colorBlending.pAttachments = &colorBlendAttachment;
+
+    VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+    pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    
+    VkResult layoutResult = vkCreatePipelineLayout(this->device, &pipelineLayoutInfo, nullptr, &this->layout);
+    if (layoutResult != VK_SUCCESS) {
+        CRITICAL("Vulkan pipeline layout creation failed with error code: {}", layoutResult);
+    }
+
+    VkAttachmentDescription colorAttachment{};
+    colorAttachment.format = this->format.format;
+    colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+    colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;  
+    colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+    VkAttachmentReference colorAttachmentRef{};
+    colorAttachmentRef.attachment = 0;
+    colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+    VkSubpassDescription subpass{};
+    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.colorAttachmentCount = 1;
+    subpass.pColorAttachments = &colorAttachmentRef;
+
+    VkRenderPassCreateInfo renderPassInfo{};
+    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    renderPassInfo.attachmentCount = 1;
+    renderPassInfo.pAttachments = &colorAttachment;
+    renderPassInfo.subpassCount = 1;
+    renderPassInfo.pSubpasses = &subpass;
+
+    VkResult renderPassResult = vkCreateRenderPass(this->device, &renderPassInfo, nullptr, &this->renderPass);
+    if (renderPassResult != VK_SUCCESS) {
+        CRITICAL("Vulkan render pass creation failed with error code: {}", renderPassResult);
+    }
+    INFO("Created render pass");
+
+    VkGraphicsPipelineCreateInfo pipelineInfo{};
+    pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipelineInfo.stageCount = 2;
+    pipelineInfo.pStages = shaderStages;
+    pipelineInfo.pVertexInputState = &vertexInputInfo;
+    pipelineInfo.pInputAssemblyState = &inputAssembly;
+    pipelineInfo.pViewportState = &viewportState;
+    pipelineInfo.pRasterizationState = &rasterizer;
+    pipelineInfo.pMultisampleState = &multisampling;
+    pipelineInfo.pDepthStencilState = nullptr; // Optional
+    pipelineInfo.pColorBlendState = &colorBlending;
+    pipelineInfo.pDynamicState = nullptr; // Optional
+    pipelineInfo.layout = this->layout;
+    pipelineInfo.renderPass = this->renderPass;
+    pipelineInfo.subpass = 0;
+    pipelineInfo.basePipelineHandle = VK_NULL_HANDLE; // Optional
+    pipelineInfo.basePipelineIndex = -1; // Optional
+
+    VkResult pipelineResult = vkCreateGraphicsPipelines(this->device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &this->pipeline);
+    if (pipelineResult != VK_SUCCESS) {
+        CRITICAL("Vulkan pipeline creation failed with error code: {}", pipelineResult);
+    }
+    INFO("Vulkan pipeline created");
+
+    // NOTE: If it doesn't work its probably this
+    vertex.Destroy();
+    fragment.Destroy();
+
+    for (const auto& imageView : this->imageViews) {
+        VkFramebufferCreateInfo framebufferInfo{};
+        framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        framebufferInfo.renderPass = renderPass;
+        framebufferInfo.attachmentCount = 1;
+        framebufferInfo.pAttachments = &imageView;
+        framebufferInfo.width = this->extent.width;
+        framebufferInfo.height = this->extent.height;
+        framebufferInfo.layers = 1;
+
+        VkFramebuffer framebuffer;
+        VkResult framebufferResult = vkCreateFramebuffer(this->device, &framebufferInfo, nullptr, &framebuffer);
+        this->framebuffers.push_back(framebuffer);
+    }
+
+    VkCommandPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    poolInfo.queueFamilyIndex = this->queueFamilies.graphics.value();
+
+    VkResult poolResult = vkCreateCommandPool(this->device, &poolInfo, nullptr, &this->commandPool);
+    if (poolResult != VK_SUCCESS) {
+        CRITICAL("Command pool creation failed with error code: {}", poolResult);
+    }
+
+    VkCommandBufferAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.commandPool = commandPool;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocInfo.commandBufferCount = 1;
+    
+    VkResult allocResult = vkAllocateCommandBuffers(this->device, &allocInfo, &this->commandBuffer);
+    if (allocResult != VK_SUCCESS) {
+        CRITICAL("Command buffer allocation failed with error code: {}", allocResult);
+    }
+}
+
+void Context::RecordCommandBuffer(VkCommandBuffer buffer, uint32_t imageIndex) {
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    VkResult beginResult = vkBeginCommandBuffer(buffer, &beginInfo);
+    if (beginResult != VK_SUCCESS) {
+        CRITICAL("Failed to begin command buffer with error code: {}", beginResult);
+    }
+
+    VkRenderPassBeginInfo renderPassInfo{};
+    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    renderPassInfo.renderPass = renderPass;
+    renderPassInfo.framebuffer = this->framebuffers[imageIndex];
+    renderPassInfo.renderArea.offset = {0, 0};
+    renderPassInfo.renderArea.extent = this->extent;
+    VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
+    renderPassInfo.clearValueCount = 1;
+    renderPassInfo.pClearValues = &clearColor;
+    vkCmdBeginRenderPass(buffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+    vkCmdBindPipeline(buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, this->pipeline);
+    vkCmdDraw(buffer, 3, 1, 0, 0);
+    vkCmdEndRenderPass(buffer);
+
+    VkResult endResult = vkEndCommandBuffer(buffer);
+    if (endResult != VK_SUCCESS) {
+        CRITICAL("Failed to end command buffer with error code: {}", endResult);
+    }
+}
+
+void Context::DrawFrame() {
+    vkWaitForFences(this->device, 1, &this->inFlightFence, VK_TRUE, UINT64_MAX);
+    vkResetFences(this->device, 1, &this->inFlightFence);
+
+    uint32_t imageIndex;
+    VkResult acquireResult = vkAcquireNextImageKHR(this->device, this->swapchain, UINT64_MAX, this->imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+    if (acquireResult != VK_SUCCESS) {
+        CRITICAL("Image acquiring failed with error code: {}", acquireResult);
+    }
+
+    vkResetCommandBuffer(this->commandBuffer, 0);
+    this->RecordCommandBuffer(this->commandBuffer, imageIndex);
+
+    VkSubmitInfo submitInfo{};
+    VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.waitSemaphoreCount = 1;
+    submitInfo.pWaitSemaphores = &this->imageAvailableSemaphore;
+    submitInfo.pWaitDstStageMask = waitStages;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &this->commandBuffer;
+    submitInfo.signalSemaphoreCount = 1;
+    submitInfo.pSignalSemaphores = &this->renderFinishedSemaphore;
+
+    VkResult submitResult = vkQueueSubmit(this->graphics, 1, &submitInfo, this->inFlightFence);
+    if (submitResult != VK_SUCCESS) {
+        CRITICAL("Failed to submit draw command buffer with error code: {}", submitResult);
+    }
+
+    VkPresentInfoKHR presentInfo{};
+    presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+    presentInfo.waitSemaphoreCount = 1;
+    presentInfo.pWaitSemaphores = &this->renderFinishedSemaphore;
+    presentInfo.swapchainCount = 1;
+    presentInfo.pSwapchains = &this->swapchain;
+    presentInfo.pImageIndices = &imageIndex;
+    VkResult presentResult = vkQueuePresentKHR(this->present, &presentInfo);
+    if (presentResult != VK_SUCCESS) {
+        CRITICAL("Vulkan presentation failed with error code: {}", presentResult);
     }
 }
