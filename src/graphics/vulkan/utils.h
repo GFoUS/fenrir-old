@@ -1,9 +1,8 @@
-#include "vulkan/vulkan.h"
-#include <vulkan/vulkan_core.h>
 #pragma once
 
+#include "vulkan/vulkan.h"
 #include "core/core.h"
-#include <optional>
+#include "vertex.h"
 
 struct Context;
 
@@ -29,3 +28,5 @@ struct SwapchainDetails {
 QueueFamilies FindQueueFamilies(const Context *context, const VkPhysicalDevice physicalDevice = nullptr);
 SwapchainDetails GetSwapchainDetails(const Context *context, const VkPhysicalDevice physicalDevice = nullptr);
 VkPhysicalDevice PickPhysicalDevice(const Context* context, const std::vector<VkPhysicalDevice> &devices, const std::vector<const char*> &requiredExtensions);
+void CreateBuffer(const Context* context, VkBuffer& buffer, VkDeviceMemory& bufferMemory, VkDeviceSize size, VkMemoryPropertyFlags requiredProperties, VkBufferUsageFlags usage);
+void CopyBuffer(const Context* context, VkBuffer src, VkBuffer dst, VkDeviceSize size);

@@ -1,21 +1,19 @@
 #include "context.h"
+#include "graphics/vulkan/utils.h"
+#include <vulkan/vulkan_core.h>
 #define GLFW_INCLUDE_VULKAN
 #include "GLFW/glfw3.h"
-
-const std::vector<Vertex> vertices = {
-    {{0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},
-    {{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},
-    {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}
-};
 
 const std::vector<const char*> instanceExtensions = {};
 const std::vector<const char*> validationLayers = {"VK_LAYER_KHRONOS_validation"};
 const std::vector<const char*> deviceExtensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
 
-Context::Context(Window* window) : window(window) {
+Context::Context(Window* window, std::vector<Vertex> vertices, std::vector<uint32_t> indices) : window(window), vertices(vertices), indices(indices) {
     this->CreateDevice();
     this->CreateSwapchain();
     this->CreatePipeline();
+    this->CreateVertexBuffer();
+    this->CreateIndexBuffer();
 
     VkSemaphoreCreateInfo semaphoreInfo{};
     semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
@@ -32,6 +30,11 @@ Context::Context(Window* window) : window(window) {
 
 Context::~Context() {
     vkDeviceWaitIdle(this->device);
+
+    vkDestroyBuffer(this->device, this->vertexBuffer, nullptr);
+    vkDestroyBuffer(this->device, this->indexBuffer, nullptr);
+    vkFreeMemory(this->device, this->vertexBufferMemory, nullptr);
+    vkFreeMemory(this->device, this->indexBufferMemory, nullptr);
     vkDestroySemaphore(this->device, this->imageAvailableSemaphore, nullptr);
     vkDestroySemaphore(this->device, this->renderFinishedSemaphore, nullptr);
     vkDestroyFence(this->device, this->inFlightFence, nullptr);
@@ -454,7 +457,10 @@ void Context::RecordCommandBuffer(VkCommandBuffer buffer, uint32_t imageIndex) {
     renderPassInfo.pClearValues = &clearColor;
     vkCmdBeginRenderPass(buffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
     vkCmdBindPipeline(buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, this->pipeline);
-    vkCmdDraw(buffer, 3, 1, 0, 0);
+    VkDeviceSize offsets[] = {0};
+    vkCmdBindVertexBuffers(buffer, 0, 1, &this->vertexBuffer, offsets);
+    vkCmdBindIndexBuffer(buffer, this->indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+    vkCmdDrawIndexed(buffer, this->indices.size(), 1, 0, 0, 0);
     vkCmdEndRenderPass(buffer);
 
     VkResult endResult = vkEndCommandBuffer(buffer);
@@ -463,44 +469,42 @@ void Context::RecordCommandBuffer(VkCommandBuffer buffer, uint32_t imageIndex) {
     }
 }
 
-void Context::DrawFrame() {
-    vkWaitForFences(this->device, 1, &this->inFlightFence, VK_TRUE, UINT64_MAX);
-    vkResetFences(this->device, 1, &this->inFlightFence);
+void Context::CreateVertexBuffer() {
+    VkDeviceSize size = sizeof(Vertex) * this->vertices.size();
 
-    uint32_t imageIndex;
-    VkResult acquireResult = vkAcquireNextImageKHR(this->device, this->swapchain, UINT64_MAX, this->imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
-    if (acquireResult != VK_SUCCESS) {
-        CRITICAL("Image acquiring failed with error code: {}", acquireResult);
-    }
+    VkBuffer staging;
+    VkDeviceMemory stagingMemory;
 
-    vkResetCommandBuffer(this->commandBuffer, 0);
-    this->RecordCommandBuffer(this->commandBuffer, imageIndex);
+    CreateBuffer(this, staging, stagingMemory, size, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
 
-    VkSubmitInfo submitInfo{};
-    VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT};
-    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submitInfo.waitSemaphoreCount = 1;
-    submitInfo.pWaitSemaphores = &this->imageAvailableSemaphore;
-    submitInfo.pWaitDstStageMask = waitStages;
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &this->commandBuffer;
-    submitInfo.signalSemaphoreCount = 1;
-    submitInfo.pSignalSemaphores = &this->renderFinishedSemaphore;
+    void* data;
+    vkMapMemory(this->device, stagingMemory, 0, size, 0, &data);
+    memcpy(data, this->vertices.data(), size);
+    vkUnmapMemory(this->device, stagingMemory);
 
-    VkResult submitResult = vkQueueSubmit(this->graphics, 1, &submitInfo, this->inFlightFence);
-    if (submitResult != VK_SUCCESS) {
-        CRITICAL("Failed to submit draw command buffer with error code: {}", submitResult);
-    }
+    CreateBuffer(this, this->vertexBuffer, this->vertexBufferMemory, size, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+    CopyBuffer(this, staging, this->vertexBuffer, size);
 
-    VkPresentInfoKHR presentInfo{};
-    presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-    presentInfo.waitSemaphoreCount = 1;
-    presentInfo.pWaitSemaphores = &this->renderFinishedSemaphore;
-    presentInfo.swapchainCount = 1;
-    presentInfo.pSwapchains = &this->swapchain;
-    presentInfo.pImageIndices = &imageIndex;
-    VkResult presentResult = vkQueuePresentKHR(this->present, &presentInfo);
-    if (presentResult != VK_SUCCESS) {
-        CRITICAL("Vulkan presentation failed with error code: {}", presentResult);
-    }
+    vkDestroyBuffer(this->device, staging, nullptr);
+    vkFreeMemory(this->device, stagingMemory, nullptr);
+}
+
+void Context::CreateIndexBuffer() {
+    VkDeviceSize size = sizeof(uint32_t) * this->indices.size();
+
+    VkBuffer staging;
+    VkDeviceMemory stagingMemory;
+
+    CreateBuffer(this, staging, stagingMemory, size, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+
+    void* data;
+    vkMapMemory(this->device, stagingMemory, 0, size, 0, &data);
+    memcpy(data, this->indices.data(), size);
+    vkUnmapMemory(this->device, stagingMemory);
+
+    CreateBuffer(this, this->indexBuffer, this->indexBufferMemory, size, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+    CopyBuffer(this, staging, this->indexBuffer, size);
+
+    vkDestroyBuffer(this->device, staging, nullptr);
+    vkFreeMemory(this->device, stagingMemory, nullptr);
 }

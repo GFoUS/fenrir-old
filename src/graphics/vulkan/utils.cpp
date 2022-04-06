@@ -82,3 +82,89 @@ VkPhysicalDevice PickPhysicalDevice(const Context* context, const std::vector<Vk
     CRITICAL("No suitable devices found!");
     return nullptr;
 }
+
+void CreateBuffer(const Context* context, VkBuffer& buffer, VkDeviceMemory& bufferMemory, VkDeviceSize size, VkMemoryPropertyFlags requiredProperties, VkBufferUsageFlags usage) {
+    VkBufferCreateInfo bufferInfo{};
+    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bufferInfo.size = size;
+    bufferInfo.usage = usage;
+    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    VkResult bufferResult = vkCreateBuffer(context->device, &bufferInfo, nullptr, &buffer);
+    if (bufferResult != VK_SUCCESS) {
+        CRITICAL("Vertex buffer creation failed with error code: {}", bufferResult);
+    }
+
+    VkMemoryRequirements requirements;
+    vkGetBufferMemoryRequirements(context->device, buffer, &requirements);
+    VkPhysicalDeviceMemoryProperties properties;
+    vkGetPhysicalDeviceMemoryProperties(context->physical, &properties);
+
+    uint32_t memoryTypeIndex;
+    for (uint32_t i = 0; i < properties.memoryTypeCount; i++) {
+        if ((requirements.memoryTypeBits & (1 << i)) && (properties.memoryTypes[i].propertyFlags & requiredProperties) == requiredProperties) {
+            memoryTypeIndex = i;
+            break;
+        }
+        if (i == properties.memoryTypeCount - 1) {
+            CRITICAL("No suitable memory types found for type {} and properties {}", requirements.memoryTypeBits, requiredProperties);
+        }
+    }
+
+    VkMemoryAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocInfo.allocationSize = requirements.size;
+    allocInfo.memoryTypeIndex = memoryTypeIndex;
+    
+    VkResult allocResult = vkAllocateMemory(context->device, &allocInfo, nullptr, &bufferMemory);
+    if (allocResult != VK_SUCCESS) {
+        CRITICAL("Allocation failed with error code: {}", allocResult);
+    }
+    vkBindBufferMemory(context->device, buffer, bufferMemory, 0);
+}
+
+void CopyBuffer(const Context* context, VkBuffer src, VkBuffer dst, VkDeviceSize size) {
+    VkCommandBufferAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocInfo.commandPool = context->commandPool;
+    allocInfo.commandBufferCount = 1;
+
+    VkCommandBuffer commandBuffer;
+    VkResult allocResult = vkAllocateCommandBuffers(context->device, &allocInfo, &commandBuffer);
+    if (allocResult != VK_SUCCESS) {
+        CRITICAL("Command buffer alocation during copy failed with error code: {}", allocResult);
+    }
+    
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    VkResult beginResult = vkBeginCommandBuffer(commandBuffer, &beginInfo);
+    if (beginResult != VK_SUCCESS) {
+        CRITICAL("Beginning copy command buffer failed with error code: {}", beginResult);
+    }
+
+    VkBufferCopy copy{};
+    copy.srcOffset = 0;
+    copy.dstOffset = 0;
+    copy.size = size;
+    vkCmdCopyBuffer(commandBuffer, src, dst, 1, &copy);
+
+    VkResult endResult = vkEndCommandBuffer(commandBuffer);
+    if (endResult != VK_SUCCESS) {
+        CRITICAL("Ending copy command buffer failed with error code: {}", endResult);
+    }
+
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer;
+
+    VkResult submitResult = vkQueueSubmit(context->graphics, 1, &submitInfo, VK_NULL_HANDLE);
+    if (submitResult != VK_SUCCESS) {
+        CRITICAL("Submitting copy command buffer failed with error code: {}", submitResult);
+    }
+    vkQueueWaitIdle(context->graphics);
+
+    vkFreeCommandBuffers(context->device, context->commandPool, 1, &commandBuffer);
+}
