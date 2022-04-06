@@ -3,7 +3,7 @@
 #include "core/core.h"
 #include "utils.h"
 #include "shader.h"
-#include <vulkan/vulkan_core.h>
+#include "vertex.h"
 
 struct Context {
     Context(Window* window);
