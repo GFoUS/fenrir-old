@@ -15,6 +15,7 @@ struct Context {
     void CreatePipeline();
     void CreateVertexBuffer();
     void CreateIndexBuffer();
+    void CreateUniformBuffer();
     void RecordCommandBuffer(VkCommandBuffer buffer, uint32_t imageIndex);
 
     VkInstance instance;
@@ -33,7 +34,7 @@ struct Context {
     std::vector<VkImageView> imageViews;
     std::vector<VkFramebuffer> framebuffers;
 
-    VkPipelineLayout layout;
+    VkPipelineLayout pipelineLayout;
     VkRenderPass renderPass;
     VkPipeline pipeline;
 
@@ -50,4 +51,10 @@ struct Context {
     VkBuffer indexBuffer;
     VkDeviceMemory vertexBufferMemory;
     VkDeviceMemory indexBufferMemory;
+
+    VkDescriptorSetLayout descriptorSetLayout;
+    VkBuffer uniformBuffer;
+    VkDeviceMemory uniformBufferMemory;
+    VkDescriptorPool descriptorPool;
+    VkDescriptorSet descriptorSet;
 };

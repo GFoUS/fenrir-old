@@ -1,6 +1,6 @@
 #include "context.h"
-#include "graphics/vulkan/utils.h"
-#include <vulkan/vulkan_core.h>
+#include "uniform.h"
+#include "utils.h"
 #define GLFW_INCLUDE_VULKAN
 #include "GLFW/glfw3.h"
 
@@ -14,6 +14,7 @@ Context::Context(Window* window, std::vector<Vertex> vertices, std::vector<uint3
     this->CreatePipeline();
     this->CreateVertexBuffer();
     this->CreateIndexBuffer();
+    this->CreateUniformBuffer();
 
     VkSemaphoreCreateInfo semaphoreInfo{};
     semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
@@ -31,10 +32,14 @@ Context::Context(Window* window, std::vector<Vertex> vertices, std::vector<uint3
 Context::~Context() {
     vkDeviceWaitIdle(this->device);
 
+    vkDestroyDescriptorPool(this->device, this->descriptorPool, nullptr);
+    vkDestroyDescriptorSetLayout(this->device, this->descriptorSetLayout, nullptr);
     vkDestroyBuffer(this->device, this->vertexBuffer, nullptr);
     vkDestroyBuffer(this->device, this->indexBuffer, nullptr);
+    vkDestroyBuffer(this->device, this->uniformBuffer, nullptr);
     vkFreeMemory(this->device, this->vertexBufferMemory, nullptr);
     vkFreeMemory(this->device, this->indexBufferMemory, nullptr);
+    vkFreeMemory(this->device, this->uniformBufferMemory, nullptr);
     vkDestroySemaphore(this->device, this->imageAvailableSemaphore, nullptr);
     vkDestroySemaphore(this->device, this->renderFinishedSemaphore, nullptr);
     vkDestroyFence(this->device, this->inFlightFence, nullptr);
@@ -44,7 +49,7 @@ Context::~Context() {
     }
     vkDestroyPipeline(this->device, this->pipeline, nullptr);
     vkDestroyRenderPass(this->device, this->renderPass, nullptr);
-    vkDestroyPipelineLayout(this->device, this->layout, nullptr);
+    vkDestroyPipelineLayout(this->device, this->pipelineLayout, nullptr);
     for (auto& imageView : this->imageViews) {
         vkDestroyImageView(this->device, imageView, nullptr);
     }
@@ -315,7 +320,7 @@ void Context::CreatePipeline() {
     rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
     rasterizer.lineWidth = 1.0f;
     rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
-    rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;
+    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
     rasterizer.depthBiasEnable = VK_FALSE;
 
     VkPipelineMultisampleStateCreateInfo multisampling{};
@@ -333,10 +338,28 @@ void Context::CreatePipeline() {
     colorBlending.attachmentCount = 1;
     colorBlending.pAttachments = &colorBlendAttachment;
 
+    VkDescriptorSetLayoutBinding uboLayoutBinding{};
+    uboLayoutBinding.binding = 0;
+    uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    uboLayoutBinding.descriptorCount = 1;
+    uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
+    VkDescriptorSetLayoutCreateInfo layoutInfo{};
+    layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    layoutInfo.bindingCount = 1;
+    layoutInfo.pBindings = &uboLayoutBinding;
+
+    VkResult descriptorSetLayoutResult = vkCreateDescriptorSetLayout(this->device, &layoutInfo, nullptr, &this->descriptorSetLayout);
+    if (descriptorSetLayoutResult != VK_SUCCESS) {
+        CRITICAL("Descriptor set layout creation failed with error code: {}", descriptorSetLayoutResult);
+    }    
+
     VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
     pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    
-    VkResult layoutResult = vkCreatePipelineLayout(this->device, &pipelineLayoutInfo, nullptr, &this->layout);
+    pipelineLayoutInfo.setLayoutCount = 1;
+    pipelineLayoutInfo.pSetLayouts = &this->descriptorSetLayout;
+
+    VkResult layoutResult = vkCreatePipelineLayout(this->device, &pipelineLayoutInfo, nullptr, &this->pipelineLayout);
     if (layoutResult != VK_SUCCESS) {
         CRITICAL("Vulkan pipeline layout creation failed with error code: {}", layoutResult);
     }
@@ -382,14 +405,10 @@ void Context::CreatePipeline() {
     pipelineInfo.pViewportState = &viewportState;
     pipelineInfo.pRasterizationState = &rasterizer;
     pipelineInfo.pMultisampleState = &multisampling;
-    pipelineInfo.pDepthStencilState = nullptr; // Optional
     pipelineInfo.pColorBlendState = &colorBlending;
-    pipelineInfo.pDynamicState = nullptr; // Optional
-    pipelineInfo.layout = this->layout;
+    pipelineInfo.layout = this->pipelineLayout;
     pipelineInfo.renderPass = this->renderPass;
     pipelineInfo.subpass = 0;
-    pipelineInfo.basePipelineHandle = VK_NULL_HANDLE; // Optional
-    pipelineInfo.basePipelineIndex = -1; // Optional
 
     VkResult pipelineResult = vkCreateGraphicsPipelines(this->device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &this->pipeline);
     if (pipelineResult != VK_SUCCESS) {
@@ -397,7 +416,6 @@ void Context::CreatePipeline() {
     }
     INFO("Vulkan pipeline created");
 
-    // NOTE: If it doesn't work its probably this
     vertex.Destroy();
     fragment.Destroy();
 
@@ -460,6 +478,7 @@ void Context::RecordCommandBuffer(VkCommandBuffer buffer, uint32_t imageIndex) {
     VkDeviceSize offsets[] = {0};
     vkCmdBindVertexBuffers(buffer, 0, 1, &this->vertexBuffer, offsets);
     vkCmdBindIndexBuffer(buffer, this->indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+    vkCmdBindDescriptorSets(buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, this->pipelineLayout, 0, 1, &this->descriptorSet, 0, nullptr);
     vkCmdDrawIndexed(buffer, this->indices.size(), 1, 0, 0, 0);
     vkCmdEndRenderPass(buffer);
 
@@ -507,4 +526,51 @@ void Context::CreateIndexBuffer() {
 
     vkDestroyBuffer(this->device, staging, nullptr);
     vkFreeMemory(this->device, stagingMemory, nullptr);
+}
+
+void Context::CreateUniformBuffer() {
+    VkDeviceSize size = sizeof(UniformBufferObject);
+    CreateBuffer(this, this->uniformBuffer, this->uniformBufferMemory, size, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+
+    VkDescriptorPoolSize poolSize{};
+    poolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    poolSize.descriptorCount = 1;
+
+    VkDescriptorPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolInfo.poolSizeCount = 1;
+    poolInfo.pPoolSizes = &poolSize;
+    poolInfo.maxSets = 1;
+
+    VkResult poolResult = vkCreateDescriptorPool(this->device, &poolInfo, nullptr, &this->descriptorPool);
+    if (poolResult != VK_SUCCESS) {
+        CRITICAL("Descriptor pool creation failed with error code: {}", poolResult);
+    }
+
+    VkDescriptorSetAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    allocInfo.descriptorPool = this->descriptorPool;
+    allocInfo.descriptorSetCount = 1;
+    allocInfo.pSetLayouts = &this->descriptorSetLayout;
+
+    VkResult allocResult = vkAllocateDescriptorSets(this->device, &allocInfo, &this->descriptorSet);
+    if (allocResult != VK_SUCCESS) {
+        CRITICAL("Descriptor set allocation failed with error code: {}", allocResult);
+    }
+
+    VkDescriptorBufferInfo bufferInfo{};
+    bufferInfo.buffer = this->uniformBuffer;
+    bufferInfo.offset = 0;
+    bufferInfo.range = size;
+
+    VkWriteDescriptorSet descriptorWrite{};
+    descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descriptorWrite.dstSet = this->descriptorSet;
+    descriptorWrite.dstBinding = 0;
+    descriptorWrite.dstArrayElement = 0;
+    descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    descriptorWrite.descriptorCount = 1;
+    descriptorWrite.pBufferInfo = &bufferInfo;
+
+    vkUpdateDescriptorSets(this->device, 1, &descriptorWrite, 0, nullptr);
 }

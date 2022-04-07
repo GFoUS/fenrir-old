@@ -1,6 +1,11 @@
 #include "renderer.h"
 
+#define GLM_FORCE_RADIANS
+#include "glm/glm.hpp"
+#include "glm/gtc/matrix_transform.hpp"
+#include "chrono"
 #include "core/core.h"
+#include "vulkan/uniform.h"
 
 const std::vector<Vertex> vertices = {
     {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
@@ -24,8 +29,23 @@ void Renderer::OnTick() {
     uint32_t imageIndex;
     VkResult acquireResult = vkAcquireNextImageKHR(context.device, context.swapchain, UINT64_MAX, context.imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
     if (acquireResult != VK_SUCCESS) {
-    CRITICAL("Image acquiring failed with error code: {}", acquireResult);
+        CRITICAL("Image acquiring failed with error code: {}", acquireResult);
     }
+
+    static auto startTime = std::chrono::high_resolution_clock::now();
+
+    auto currentTime = std::chrono::high_resolution_clock::now();
+    float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
+    UniformBufferObject ubo{};
+    ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    ubo.proj = glm::perspective(glm::radians(45.0f), context.extent.width / (float) context.extent.height, 0.1f, 10.0f);
+    ubo.proj[1][1] *= -1;
+
+    void* data;
+    vkMapMemory(context.device, context.uniformBufferMemory, 0, sizeof(ubo), 0, &data);
+    memcpy(data, &ubo, sizeof(ubo));
+    vkUnmapMemory(context.device, context.uniformBufferMemory);
 
     vkResetCommandBuffer(context.commandBuffer, 0);
     context.RecordCommandBuffer(context.commandBuffer, imageIndex);
