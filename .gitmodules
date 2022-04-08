@@ -13,3 +13,7 @@
 [submodule "vendor/glm"]
 	path = vendor/glm
 	url = https://github.com/g-truc//glm
+[submodule "vendor/json"]
+	path = vendor/json
+	url = https://github.com/nlohmann/json
+	branch = develop

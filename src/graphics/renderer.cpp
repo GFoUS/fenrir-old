@@ -7,18 +7,24 @@
 #include "core/core.h"
 #include "vulkan/uniform.h"
 
-const std::vector<Vertex> vertices = {
+const std::vector<Vertex> vertexData = {
     {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
     {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
     {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
     {{-0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}}
 };
 
-const std::vector<uint32_t> indices = {
+const std::vector<uint32_t> indexData = {
     0, 1, 2, 2, 3, 0
 };
 
-Renderer::Renderer(Window *window) : context(window, vertices, indices) {}
+Renderer::Renderer(Window *window) : context(window), model(&this->context, "models/Box.gltf") {
+    this->vertices = VertexBuffer(&context, vertexData);
+    this->indices = IndexBuffer(&context, indexData);
+
+    context.BindVertexBuffer(vertices);
+    context.BindIndexBuffer(indices);
+}
 
 Renderer::~Renderer() {}
 
@@ -77,4 +83,8 @@ void Renderer::OnTick() {
     if (presentResult != VK_SUCCESS) {
         CRITICAL("Vulkan presentation failed with error code: {}", presentResult);
     }
+}
+
+void Renderer::BindModel() {
+    
 }

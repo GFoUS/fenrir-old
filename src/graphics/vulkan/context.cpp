@@ -8,12 +8,10 @@ const std::vector<const char*> instanceExtensions = {};
 const std::vector<const char*> validationLayers = {"VK_LAYER_KHRONOS_validation"};
 const std::vector<const char*> deviceExtensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
 
-Context::Context(Window* window, std::vector<Vertex> vertices, std::vector<uint32_t> indices) : window(window), vertices(vertices), indices(indices) {
+Context::Context(Window* window) : window(window) {
     this->CreateDevice();
     this->CreateSwapchain();
     this->CreatePipeline();
-    this->CreateVertexBuffer();
-    this->CreateIndexBuffer();
     this->CreateUniformBuffer();
 
     VkSemaphoreCreateInfo semaphoreInfo{};
@@ -34,11 +32,9 @@ Context::~Context() {
 
     vkDestroyDescriptorPool(this->device, this->descriptorPool, nullptr);
     vkDestroyDescriptorSetLayout(this->device, this->descriptorSetLayout, nullptr);
-    vkDestroyBuffer(this->device, this->vertexBuffer, nullptr);
-    vkDestroyBuffer(this->device, this->indexBuffer, nullptr);
+    this->vertexBuffer.Destroy();
+    this->indexBuffer.Destroy();
     vkDestroyBuffer(this->device, this->uniformBuffer, nullptr);
-    vkFreeMemory(this->device, this->vertexBufferMemory, nullptr);
-    vkFreeMemory(this->device, this->indexBufferMemory, nullptr);
     vkFreeMemory(this->device, this->uniformBufferMemory, nullptr);
     vkDestroySemaphore(this->device, this->imageAvailableSemaphore, nullptr);
     vkDestroySemaphore(this->device, this->renderFinishedSemaphore, nullptr);
@@ -476,56 +472,16 @@ void Context::RecordCommandBuffer(VkCommandBuffer buffer, uint32_t imageIndex) {
     vkCmdBeginRenderPass(buffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
     vkCmdBindPipeline(buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, this->pipeline);
     VkDeviceSize offsets[] = {0};
-    vkCmdBindVertexBuffers(buffer, 0, 1, &this->vertexBuffer, offsets);
-    vkCmdBindIndexBuffer(buffer, this->indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+    vkCmdBindVertexBuffers(buffer, 0, 1, &this->vertexBuffer.buffer, offsets);
+    vkCmdBindIndexBuffer(buffer, this->indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
     vkCmdBindDescriptorSets(buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, this->pipelineLayout, 0, 1, &this->descriptorSet, 0, nullptr);
-    vkCmdDrawIndexed(buffer, this->indices.size(), 1, 0, 0, 0);
+    vkCmdDrawIndexed(buffer, this->indexBuffer.indices.size(), 1, 0, 0, 0);
     vkCmdEndRenderPass(buffer);
 
     VkResult endResult = vkEndCommandBuffer(buffer);
     if (endResult != VK_SUCCESS) {
         CRITICAL("Failed to end command buffer with error code: {}", endResult);
     }
-}
-
-void Context::CreateVertexBuffer() {
-    VkDeviceSize size = sizeof(Vertex) * this->vertices.size();
-
-    VkBuffer staging;
-    VkDeviceMemory stagingMemory;
-
-    CreateBuffer(this, staging, stagingMemory, size, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
-
-    void* data;
-    vkMapMemory(this->device, stagingMemory, 0, size, 0, &data);
-    memcpy(data, this->vertices.data(), size);
-    vkUnmapMemory(this->device, stagingMemory);
-
-    CreateBuffer(this, this->vertexBuffer, this->vertexBufferMemory, size, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-    CopyBuffer(this, staging, this->vertexBuffer, size);
-
-    vkDestroyBuffer(this->device, staging, nullptr);
-    vkFreeMemory(this->device, stagingMemory, nullptr);
-}
-
-void Context::CreateIndexBuffer() {
-    VkDeviceSize size = sizeof(uint32_t) * this->indices.size();
-
-    VkBuffer staging;
-    VkDeviceMemory stagingMemory;
-
-    CreateBuffer(this, staging, stagingMemory, size, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
-
-    void* data;
-    vkMapMemory(this->device, stagingMemory, 0, size, 0, &data);
-    memcpy(data, this->indices.data(), size);
-    vkUnmapMemory(this->device, stagingMemory);
-
-    CreateBuffer(this, this->indexBuffer, this->indexBufferMemory, size, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-    CopyBuffer(this, staging, this->indexBuffer, size);
-
-    vkDestroyBuffer(this->device, staging, nullptr);
-    vkFreeMemory(this->device, stagingMemory, nullptr);
 }
 
 void Context::CreateUniformBuffer() {

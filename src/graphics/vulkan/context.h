@@ -4,19 +4,25 @@
 #include "utils.h"
 #include "shader.h"
 #include "vertex.h"
-#include <vulkan/vulkan_core.h>
+#include "index.h"
 
 struct Context {
-    Context(Window* window, std::vector<Vertex> vertices, std::vector<uint32_t> indices);
+    Context(Window* window);
     ~Context();
 
     void CreateDevice();
     void CreateSwapchain();
     void CreatePipeline();
-    void CreateVertexBuffer();
-    void CreateIndexBuffer();
     void CreateUniformBuffer();
     void RecordCommandBuffer(VkCommandBuffer buffer, uint32_t imageIndex);
+
+    void BindVertexBuffer(VertexBuffer buffer) {
+        this->vertexBuffer = buffer;
+    }
+
+    void BindIndexBuffer(IndexBuffer buffer) {
+        this->indexBuffer = buffer;
+    }
 
     VkInstance instance;
     VkPhysicalDevice physical;
@@ -44,13 +50,9 @@ struct Context {
     VkSemaphore imageAvailableSemaphore;
     VkSemaphore renderFinishedSemaphore;
     VkFence inFlightFence;
-
-    std::vector<Vertex> vertices;
-    std::vector<uint32_t> indices;
-    VkBuffer vertexBuffer;
-    VkBuffer indexBuffer;
-    VkDeviceMemory vertexBufferMemory;
-    VkDeviceMemory indexBufferMemory;
+    
+    VertexBuffer vertexBuffer;
+    IndexBuffer indexBuffer;
 
     VkDescriptorSetLayout descriptorSetLayout;
     VkBuffer uniformBuffer;

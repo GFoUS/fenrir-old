@@ -1,8 +1,5 @@
 #include "shader.h"
 
-#include "fstream"
-#include <vulkan/vulkan_core.h>
-
 Shader::Shader(VkDevice device, const char* fileName, ShaderType type) : device(device), type(type) {
     std::ifstream file(fileName, std::ios::ate | std::ios::binary);
     if (!file.is_open()) {

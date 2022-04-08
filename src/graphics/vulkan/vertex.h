@@ -4,6 +4,8 @@
 #include "vulkan/vulkan.h"
 #include "core/core.h"
 
+struct Context;
+
 struct Vertex {
     glm::vec2 pos;
     glm::vec3 color;
@@ -32,4 +34,15 @@ struct Vertex {
 
         return attributeDescriptions;
     }
+};
+
+struct VertexBuffer {
+    std::vector<Vertex> vertices;
+    VkBuffer buffer;
+    VkDeviceMemory memory;
+    Context* context;
+
+    VertexBuffer() = default;
+    VertexBuffer(Context* context, std::vector<Vertex> vertices);
+    void Destroy();
 };

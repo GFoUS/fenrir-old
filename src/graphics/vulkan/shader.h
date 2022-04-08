@@ -2,7 +2,6 @@
 
 #include "core/core.h"
 #include "vulkan/vulkan.h"
-#include <vulkan/vulkan_core.h>
 
 enum ShaderType {
     VERTEX = VK_SHADER_STAGE_VERTEX_BIT,
