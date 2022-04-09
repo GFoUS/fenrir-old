@@ -6,11 +6,20 @@
 
 #include "nlohmann/json.hpp"
 
+struct Geometry {
+    Geometry(struct Node* parent, nlohmann::json &data, nlohmann::json &primitive);
+
+    VertexBuffer vertexBuffer;
+    IndexBuffer indexBuffer;
+};
+
 struct Node {
     Node* parent;
     std::vector<Node> children;
     glm::mat4 matrix;
     std::string name;
+    std::string meshName;
+    std::vector<Geometry> geometries;
     
     Node(Node* parent, nlohmann::json data, nlohmann::json node);
 };
