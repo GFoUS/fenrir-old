@@ -25,12 +25,11 @@ Model::Model(Context* context, std::string path) : context(context) {
     
     std::vector<uint32_t> nodeIndices = scene["nodes"];
     for (const auto nodeIndex : nodeIndices) {
-        Node node(nullptr, data, data["nodes"][nodeIndex]);
-        this->nodes.push_back(node);
+        this->nodes.push_back(std::make_unique<Node>(context, nullptr, data, data["nodes"][nodeIndex]));
     }
 }
 
-Node::Node(Node* parent, json data, json node) : parent(parent) {
+Node::Node(Context* context, Node* parent, json data, json node) : parent(parent) {
     if (node.contains("name")) {
         this->name = node["name"];
         INFO("Loading node: {}", this->name);
@@ -80,35 +79,120 @@ Node::Node(Node* parent, json data, json node) : parent(parent) {
 
         std::vector<json> primitives = mesh["primitives"];
         for (auto& primitive : primitives) {
-            Geometry geometry(this, data, primitive);
-            this->geometries.push_back(geometry);
+            INFO("Creating geometry");
+            this->geometries.push_back(std::make_unique<Geometry>(context, this, data, primitive));
         }
     }
 
     if (node.contains("children")) {
         std::vector<uint32_t> childrenIndices = node["children"];
         for (const auto childrenIndex : childrenIndices) {
-            Node child(this, data, data["nodes"][childrenIndex]);
-            this->children.push_back(child);
+            this->children.push_back(std::make_unique<Node>(context, this, data, data["nodes"][childrenIndex]));
         }
     }    
 }
 
-Geometry::Geometry(Node* parent, nlohmann::json &data, nlohmann::json &primitive) {
+uint32_t sizeOfComponentType(uint32_t componentType) {
+    switch (componentType) {
+        case 5120: return 1;
+        case 5121: return 1;
+        case 5122: return 2;
+        case 5123: return 2;
+        case 5125: return 4;
+        case 5126: return 4;
+    }
+    
+    CRITICAL("Invalid component type: {}", componentType);
+}
+
+uint32_t sizeOfType(std::string type) {
+    if (type == "SCALAR") {
+        return 1;
+    } else if (type == "VEC2") {
+        return 2;
+    } else if (type == "VEC3") {
+        return 3;
+    } else if (type == "VEC4") {
+        return 4;
+    } else if (type == "MAT2") {
+        return 4;
+    } else if (type == "MAT3") {
+        return 9;
+    } else if (type == "MAT4") {
+        return 16;
+    }
+
+    CRITICAL("Invalid type: {}", type);
+}
+
+Geometry::Geometry(Context* context, Node* parent, nlohmann::json &data, nlohmann::json &primitive) {
     json attributes = primitive["attributes"];
     if (attributes.contains("POSITION")) {
         uint32_t vertexAccessorIndex = attributes["POSITION"];
         json vertexAccessor = data["accessors"][vertexAccessorIndex];
 
-        uint32_t byteOffset = 0;
-        if (vertexAccessor.contains("byteOffset")) {
-            byteOffset = vertexAccessor["byteOffset"];
+        // Verify accessor is for positions
+        if (vertexAccessor["componentType"] != 5126) {
+            CRITICAL("Only floats are supported as vertex inputs");
+        }
+        if (vertexAccessor["type"] != "VEC3") {
+            CRITICAL("Only 3 value vectors are supported as vertex inputs");
         }
 
         if (!vertexAccessor.contains("bufferView")) {
             CRITICAL("An accessor doesn't have a buffer view");
         }
-        uint32_t bufferView = vertexAccessor["bufferView"];
+        uint32_t vertexBufferViewIndex = vertexAccessor["bufferView"];
+        json vertexBufferView = data["bufferViews"][vertexBufferViewIndex];
+
+        // Offset calculation
+        uint32_t bufferViewOffset = 0;
+        uint32_t bufferOffset = 0;
+        if (vertexAccessor.contains("byteOffset")) {
+            bufferViewOffset = vertexAccessor["byteOffset"];
+        }
+        if (vertexBufferView["byteOffset"] != 0) {
+            bufferOffset = vertexBufferView["byteOffset"];
+        }
+        uint32_t offset = bufferViewOffset + bufferOffset;
+
+        uint32_t length = vertexBufferView["byteLength"];
+        uint32_t vertexBufferIndex = vertexBufferView["buffer"];
+        json vertexBuffer = data["buffers"][vertexBufferIndex];
+
+        uint32_t count = vertexAccessor["count"];
+        uint32_t size = sizeOfComponentType(vertexAccessor["componentType"]) * sizeOfType(vertexAccessor["type"]) * count;
+
+        // Open file and read data
+        if (!vertexBuffer.contains("uri")) {
+            CRITICAL("Buffer doesn't have a uri");
+        }
+        std::string uri = vertexBuffer["uri"];
+        std::ifstream file("models/" + uri, std::ios::binary);
+        if (!file.is_open()) {
+            CRITICAL("Couldn't open file {}", "models/" + uri);
+        }
+
+        file.seekg(offset, std::ios::beg);
+        std::vector<char> buffer(size);
+        file.read(buffer.data(), buffer.size());
+        file.close();
+
+        this->vertices.resize(count);
+        for (uint32_t i = 0; i < count; i++) {
+            glm::vec3 position;
+            position.x = *(float*)(buffer.data() + i * 12 + 0);
+            position.y = *(float*)(buffer.data() + i * 12 + 4);
+            position.z = *(float*)(buffer.data() + i * 12 + 8);
+            this->vertices[i] = {position, glm::vec3(1.0f, 1.0f, 1.0f)};
+        }
+
+        this->vertexBuffer = VertexBuffer(context, this->vertices);
+        INFO("Loaded vertex buffer");
     }
+}
+
+Geometry::~Geometry() {
+    this->vertexBuffer.Destroy();
 }
 

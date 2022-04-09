@@ -7,21 +7,23 @@
 #include "nlohmann/json.hpp"
 
 struct Geometry {
-    Geometry(struct Node* parent, nlohmann::json &data, nlohmann::json &primitive);
+    Geometry(Context* context, struct Node* parent, nlohmann::json &data, nlohmann::json &primitive);
+    ~Geometry();    
 
+    std::vector<Vertex> vertices;
     VertexBuffer vertexBuffer;
     IndexBuffer indexBuffer;
 };
 
 struct Node {
     Node* parent;
-    std::vector<Node> children;
+    std::vector<std::unique_ptr<Node>> children;
     glm::mat4 matrix;
     std::string name;
     std::string meshName;
-    std::vector<Geometry> geometries;
+    std::vector<std::unique_ptr<Geometry>> geometries;
     
-    Node(Node* parent, nlohmann::json data, nlohmann::json node);
+    Node(Context* context, Node* parent, nlohmann::json data, nlohmann::json node);
 };
 
 struct Model {
@@ -29,7 +31,7 @@ struct Model {
     IndexBuffer indices;
     Context* context;
     std::string sceneName;
-    std::vector<Node> nodes;
+    std::vector<std::unique_ptr<Node>> nodes;
 
     Model(Context* context, std::string path);
 };
