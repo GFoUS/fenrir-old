@@ -1,8 +1,9 @@
 #include "context.h"
-#include "uniform.h"
 #include "utils.h"
 #define GLFW_INCLUDE_VULKAN
 #include "GLFW/glfw3.h"
+#include "uniform.h"
+#include "vertex.h"
 
 const std::vector<const char*> instanceExtensions = {};
 const std::vector<const char*> validationLayers = {"VK_LAYER_KHRONOS_validation"};
@@ -11,6 +12,8 @@ const std::vector<const char*> deviceExtensions = {VK_KHR_SWAPCHAIN_EXTENSION_NA
 Context::Context(Window* window) : window(window) {
     this->CreateDevice();
     this->CreateSwapchain();
+    this->depthImage = std::make_unique<Image>(this->allocator, this->extent.width, this->extent.height, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, this->msaaSamples);
+    this->colorImage = std::make_unique<Image>(this->allocator, this->extent.width, this->extent.height, this->format.format, VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, this->msaaSamples);
     this->CreatePipeline();
     this->CreateUniformBuffer();
 
@@ -23,7 +26,7 @@ Context::Context(Window* window) : window(window) {
         vkCreateSemaphore(this->device, &semaphoreInfo, nullptr, &this->renderFinishedSemaphore) != VK_SUCCESS ||
         vkCreateFence(this->device, &fenceInfo, nullptr, &this->inFlightFence) != VK_SUCCESS){
 
-        CRITICAL("failed to create syncronization objects");
+        CRITICAL("failed to create synchronization objects");
     }
 }
 
@@ -31,9 +34,9 @@ Context::~Context() {
     vkDeviceWaitIdle(this->device);
 
     vkDestroyDescriptorPool(this->device, this->descriptorPool, nullptr);
-    vkDestroyDescriptorSetLayout(this->device, this->descriptorSetLayout, nullptr);
-    this->vertexBuffer.Destroy();
-    this->indexBuffer.Destroy();
+    for (auto& descriptorSetLayout : this->descriptorSetLayouts) {
+        vkDestroyDescriptorSetLayout(this->device, descriptorSetLayout, nullptr);
+    }
     vkDestroyBuffer(this->device, this->uniformBuffer, nullptr);
     vkFreeMemory(this->device, this->uniformBufferMemory, nullptr);
     vkDestroySemaphore(this->device, this->imageAvailableSemaphore, nullptr);
@@ -43,6 +46,8 @@ Context::~Context() {
     for (auto& framebuffer : this->framebuffers) {
         vkDestroyFramebuffer(this->device, framebuffer, nullptr);
     }
+    this->depthImage->Destroy();
+    this->colorImage->Destroy();
     vkDestroyPipeline(this->device, this->pipeline, nullptr);
     vkDestroyRenderPass(this->device, this->renderPass, nullptr);
     vkDestroyPipelineLayout(this->device, this->pipelineLayout, nullptr);
@@ -50,6 +55,7 @@ Context::~Context() {
         vkDestroyImageView(this->device, imageView, nullptr);
     }
     vkDestroySwapchainKHR(this->device, this->swapchain, nullptr);
+    vmaDestroyAllocator(this->allocator);
     vkDestroyDevice(this->device, nullptr);
     vkDestroySurfaceKHR(this->instance, this->surface, nullptr);
     vkDestroyInstance(this->instance, nullptr);
@@ -137,7 +143,9 @@ void Context::CreateDevice() {
     vkEnumeratePhysicalDevices(this->instance, &numDevices, physicalDevices.data());
 
     this->physical = PickPhysicalDevice(this, physicalDevices, deviceExtensions);
+    vkGetPhysicalDeviceProperties(this->physical, &this->physicalProperties);
     this->queueFamilies = FindQueueFamilies(this);
+    this->msaaSamples = GetMaxUsableSampleCount(this->physicalProperties);
 
     // Create device
     float queuePriority = 1.0f;
@@ -172,6 +180,19 @@ void Context::CreateDevice() {
 
     vkGetDeviceQueue(this->device, this->queueFamilies.graphics.value(), 0, &this->graphics);
     vkGetDeviceQueue(this->device, this->queueFamilies.present.value(), 0, &this->present);
+
+    VmaVulkanFunctions vulkanFunctions = {};
+    vulkanFunctions.vkGetInstanceProcAddr = &vkGetInstanceProcAddr;
+    vulkanFunctions.vkGetDeviceProcAddr = &vkGetDeviceProcAddr;
+
+    VmaAllocatorCreateInfo allocatorCreateInfo{};
+    allocatorCreateInfo.vulkanApiVersion = VK_API_VERSION_1_0;
+    allocatorCreateInfo.physicalDevice = this->physical;
+    allocatorCreateInfo.device = this->device;
+    allocatorCreateInfo.instance = this->instance;
+    allocatorCreateInfo.pVulkanFunctions = &vulkanFunctions;
+    allocatorCreateInfo.flags = 0;
+    vmaCreateAllocator(&allocatorCreateInfo, &this->allocator);
 }   
 
 void Context::CreateSwapchain() {
@@ -281,8 +302,8 @@ void Context::CreatePipeline() {
     VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
     vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
     vertexInputInfo.vertexBindingDescriptionCount = 1;
-    vertexInputInfo.vertexAttributeDescriptionCount = attributeDescriptions.size();
     vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
+    vertexInputInfo.vertexAttributeDescriptionCount = attributeDescriptions.size();
     vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
 
     VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
@@ -322,7 +343,7 @@ void Context::CreatePipeline() {
     VkPipelineMultisampleStateCreateInfo multisampling{};
     multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
     multisampling.sampleShadingEnable = VK_FALSE;
-    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    multisampling.rasterizationSamples = this->msaaSamples;
 
     VkPipelineColorBlendAttachmentState colorBlendAttachment{};
     colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
@@ -334,26 +355,50 @@ void Context::CreatePipeline() {
     colorBlending.attachmentCount = 1;
     colorBlending.pAttachments = &colorBlendAttachment;
 
-    VkDescriptorSetLayoutBinding uboLayoutBinding{};
-    uboLayoutBinding.binding = 0;
-    uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    uboLayoutBinding.descriptorCount = 1;
-    uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    VkPipelineDepthStencilStateCreateInfo depthStencil{};
+    depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depthStencil.depthTestEnable = VK_TRUE;
+    depthStencil.depthWriteEnable = VK_TRUE;
+    depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
+    depthStencil.depthBoundsTestEnable = VK_FALSE;
+    depthStencil.depthBoundsTestEnable = VK_FALSE;
+    depthStencil.stencilTestEnable = VK_FALSE;
 
-    VkDescriptorSetLayoutCreateInfo layoutInfo{};
-    layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layoutInfo.bindingCount = 1;
-    layoutInfo.pBindings = &uboLayoutBinding;
+    VkDescriptorSetLayoutBinding modelLayoutBinding{};
+    modelLayoutBinding.binding = 0;
+    modelLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+    modelLayoutBinding.descriptorCount = 1;
+    modelLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    VkDescriptorSetLayoutCreateInfo modelLayout{};
+    modelLayout.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    modelLayout.bindingCount = 1;
+    modelLayout.pBindings = &modelLayoutBinding;
 
-    VkResult descriptorSetLayoutResult = vkCreateDescriptorSetLayout(this->device, &layoutInfo, nullptr, &this->descriptorSetLayout);
-    if (descriptorSetLayoutResult != VK_SUCCESS) {
-        CRITICAL("Descriptor set layout creation failed with error code: {}", descriptorSetLayoutResult);
-    }    
+    VkDescriptorSetLayoutBinding viewProjectionLayoutBinding{};
+    viewProjectionLayoutBinding.binding = 0;
+    viewProjectionLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    viewProjectionLayoutBinding.descriptorCount = 1;
+    viewProjectionLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    VkDescriptorSetLayoutCreateInfo viewProjectionLayout{};
+    viewProjectionLayout.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    viewProjectionLayout.bindingCount = 1;
+    viewProjectionLayout.pBindings = &viewProjectionLayoutBinding;
+
+
+    std::vector<VkDescriptorSetLayoutCreateInfo> layoutInfos = {modelLayout, viewProjectionLayout}; // First is for model matrix, second is for view and projection
+    this->descriptorSetLayouts.resize(layoutInfos.size());
+
+    for (uint32_t i = 0; i < layoutInfos.size(); i++) {
+        VkResult descriptorSetLayoutResult = vkCreateDescriptorSetLayout(this->device, &layoutInfos[i], nullptr, &this->descriptorSetLayouts[i]);
+        if (descriptorSetLayoutResult != VK_SUCCESS) {
+            CRITICAL("Descriptor set layout creation failed with error code: {}", descriptorSetLayoutResult);
+        }
+    }
 
     VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
     pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pipelineLayoutInfo.setLayoutCount = 1;
-    pipelineLayoutInfo.pSetLayouts = &this->descriptorSetLayout;
+    pipelineLayoutInfo.setLayoutCount = this->descriptorSetLayouts.size();
+    pipelineLayoutInfo.pSetLayouts = this->descriptorSetLayouts.data();
 
     VkResult layoutResult = vkCreatePipelineLayout(this->device, &pipelineLayoutInfo, nullptr, &this->pipelineLayout);
     if (layoutResult != VK_SUCCESS) {
@@ -362,27 +407,58 @@ void Context::CreatePipeline() {
 
     VkAttachmentDescription colorAttachment{};
     colorAttachment.format = this->format.format;
-    colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+    colorAttachment.samples = this->msaaSamples;
     colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
     colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
     colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;  
     colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    colorAttachment.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
     VkAttachmentReference colorAttachmentRef{};
     colorAttachmentRef.attachment = 0;
     colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
+    VkAttachmentDescription depthAttachment{};
+    depthAttachment.format = this->depthImage->format;
+    depthAttachment.samples = this->msaaSamples;
+    depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+    VkAttachmentReference depthAttachmentRef{};
+    depthAttachmentRef.attachment = 1;
+    depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+    VkAttachmentDescription colorAttachmentResolve{};
+    colorAttachmentResolve.format = this->format.format;
+    colorAttachmentResolve.samples = VK_SAMPLE_COUNT_1_BIT;
+    colorAttachmentResolve.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    colorAttachmentResolve.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    colorAttachmentResolve.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    colorAttachmentResolve.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    colorAttachmentResolve.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    colorAttachmentResolve.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+    VkAttachmentReference colorAttachmentResolveRef{};
+    colorAttachmentResolveRef.attachment = 2;
+    colorAttachmentResolveRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
     VkSubpassDescription subpass{};
     subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
     subpass.colorAttachmentCount = 1;
     subpass.pColorAttachments = &colorAttachmentRef;
+    subpass.pDepthStencilAttachment = &depthAttachmentRef;
+    subpass.pResolveAttachments = &colorAttachmentResolveRef;
 
+    std::array<VkAttachmentDescription, 3> attachments = {colorAttachment, depthAttachment, colorAttachmentResolve};
     VkRenderPassCreateInfo renderPassInfo{};
     renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-    renderPassInfo.attachmentCount = 1;
-    renderPassInfo.pAttachments = &colorAttachment;
+    renderPassInfo.attachmentCount = attachments.size();
+    renderPassInfo.pAttachments = attachments.data();
     renderPassInfo.subpassCount = 1;
     renderPassInfo.pSubpasses = &subpass;
 
@@ -402,6 +478,7 @@ void Context::CreatePipeline() {
     pipelineInfo.pRasterizationState = &rasterizer;
     pipelineInfo.pMultisampleState = &multisampling;
     pipelineInfo.pColorBlendState = &colorBlending;
+    pipelineInfo.pDepthStencilState = &depthStencil;
     pipelineInfo.layout = this->pipelineLayout;
     pipelineInfo.renderPass = this->renderPass;
     pipelineInfo.subpass = 0;
@@ -416,17 +493,22 @@ void Context::CreatePipeline() {
     fragment.Destroy();
 
     for (const auto& imageView : this->imageViews) {
+        std::array<VkImageView, 3> framebufferAttachments = {this->colorImage->GetImageView(this->device, VK_IMAGE_ASPECT_COLOR_BIT), this->depthImage->GetImageView(this->device, VK_IMAGE_ASPECT_DEPTH_BIT), imageView};
         VkFramebufferCreateInfo framebufferInfo{};
         framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
         framebufferInfo.renderPass = renderPass;
-        framebufferInfo.attachmentCount = 1;
-        framebufferInfo.pAttachments = &imageView;
+        framebufferInfo.attachmentCount = framebufferAttachments.size();
+        framebufferInfo.pAttachments = framebufferAttachments.data();
         framebufferInfo.width = this->extent.width;
         framebufferInfo.height = this->extent.height;
         framebufferInfo.layers = 1;
 
         VkFramebuffer framebuffer;
         VkResult framebufferResult = vkCreateFramebuffer(this->device, &framebufferInfo, nullptr, &framebuffer);
+        if (framebufferResult != VK_SUCCESS) {
+            CRITICAL("Framebuffer creation failed with error code: {}", framebufferResult);
+        }
+
         this->framebuffers.push_back(framebuffer);
     }
 
@@ -452,7 +534,7 @@ void Context::CreatePipeline() {
     }
 }
 
-void Context::RecordCommandBuffer(VkCommandBuffer buffer, uint32_t imageIndex) {
+void Context::StartCommandBuffer(VkCommandBuffer buffer, uint32_t imageIndex) {
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     VkResult beginResult = vkBeginCommandBuffer(buffer, &beginInfo);
@@ -466,18 +548,18 @@ void Context::RecordCommandBuffer(VkCommandBuffer buffer, uint32_t imageIndex) {
     renderPassInfo.framebuffer = this->framebuffers[imageIndex];
     renderPassInfo.renderArea.offset = {0, 0};
     renderPassInfo.renderArea.extent = this->extent;
-    VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
-    renderPassInfo.clearValueCount = 1;
-    renderPassInfo.pClearValues = &clearColor;
+    std::array<VkClearValue, 2> clearValues{};
+    clearValues[0].color = {{0.0f, 0.0f, 0.0f, 1.0f}};
+    clearValues[1].depthStencil = {1.0f, 0};
+    renderPassInfo.clearValueCount = clearValues.size();
+    renderPassInfo.pClearValues = clearValues.data();
     vkCmdBeginRenderPass(buffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
     vkCmdBindPipeline(buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, this->pipeline);
-    VkDeviceSize offsets[] = {0};
-    vkCmdBindVertexBuffers(buffer, 0, 1, &this->vertexBuffer.buffer, offsets);
-    vkCmdBindIndexBuffer(buffer, this->indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
-    vkCmdBindDescriptorSets(buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, this->pipelineLayout, 0, 1, &this->descriptorSet, 0, nullptr);
-    vkCmdDrawIndexed(buffer, this->indexBuffer.indices.size(), 1, 0, 0, 0);
-    vkCmdEndRenderPass(buffer);
+    vkCmdBindDescriptorSets(buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, this->pipelineLayout, 1, 1, &this->descriptorSet, 0, nullptr);
+}
 
+void Context::EndCommandBuffer(VkCommandBuffer buffer) {
+    vkCmdEndRenderPass(buffer);
     VkResult endResult = vkEndCommandBuffer(buffer);
     if (endResult != VK_SUCCESS) {
         CRITICAL("Failed to end command buffer with error code: {}", endResult);
@@ -507,7 +589,7 @@ void Context::CreateUniformBuffer() {
     allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
     allocInfo.descriptorPool = this->descriptorPool;
     allocInfo.descriptorSetCount = 1;
-    allocInfo.pSetLayouts = &this->descriptorSetLayout;
+    allocInfo.pSetLayouts = &this->descriptorSetLayouts[1]; // Set to second set which is the view and projection matrices, model matrix is handled in the model class
 
     VkResult allocResult = vkAllocateDescriptorSets(this->device, &allocInfo, &this->descriptorSet);
     if (allocResult != VK_SUCCESS) {
@@ -529,4 +611,7 @@ void Context::CreateUniformBuffer() {
     descriptorWrite.pBufferInfo = &bufferInfo;
 
     vkUpdateDescriptorSets(this->device, 1, &descriptorWrite, 0, nullptr);
+}
+
+void Context::CreateDepthBuffer() {
 }

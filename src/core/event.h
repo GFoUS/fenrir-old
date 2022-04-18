@@ -8,4 +8,5 @@ enum EventType {
 class Event {
 public:
     virtual EventType GetType() = 0;
+    // virtual ~Event() = default;
 };

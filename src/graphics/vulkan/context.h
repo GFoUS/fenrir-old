@@ -1,10 +1,12 @@
+#pragma once
+
 #include "vulkan/vulkan.h"
 #include "../window.h"
 #include "core/core.h"
 #include "utils.h"
 #include "shader.h"
-#include "vertex.h"
-#include "index.h"
+#include "vma.h"
+#include "image.h"
 
 struct Context {
     Context(Window* window);
@@ -14,22 +16,19 @@ struct Context {
     void CreateSwapchain();
     void CreatePipeline();
     void CreateUniformBuffer();
-    void RecordCommandBuffer(VkCommandBuffer buffer, uint32_t imageIndex);
+    void CreateDepthBuffer();
 
-    void BindVertexBuffer(VertexBuffer buffer) {
-        this->vertexBuffer = buffer;
-    }
-
-    void BindIndexBuffer(IndexBuffer buffer) {
-        this->indexBuffer = buffer;
-    }
+    void StartCommandBuffer(VkCommandBuffer buffer, uint32_t imageIndex);
+    void EndCommandBuffer(VkCommandBuffer buffer);
 
     VkInstance instance;
     VkPhysicalDevice physical;
+    VkPhysicalDeviceProperties physicalProperties;
     QueueFamilies queueFamilies;
     VkDevice device;
     VkQueue graphics;
     VkQueue present;
+    VmaAllocator allocator;
     
     Window* window;
     VkSurfaceKHR surface;
@@ -50,13 +49,15 @@ struct Context {
     VkSemaphore imageAvailableSemaphore;
     VkSemaphore renderFinishedSemaphore;
     VkFence inFlightFence;
-    
-    VertexBuffer vertexBuffer;
-    IndexBuffer indexBuffer;
 
-    VkDescriptorSetLayout descriptorSetLayout;
+    std::vector<VkDescriptorSetLayout> descriptorSetLayouts;
     VkBuffer uniformBuffer;
     VkDeviceMemory uniformBufferMemory;
     VkDescriptorPool descriptorPool;
     VkDescriptorSet descriptorSet;
+
+    std::unique_ptr<Image> depthImage;
+
+    VkSampleCountFlagBits msaaSamples{};
+    std::unique_ptr<Image> colorImage;
 };

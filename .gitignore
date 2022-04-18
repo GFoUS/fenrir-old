@@ -8,3 +8,4 @@ fenrir.sln
 **/*.vcxproj.user
 build/
 .cache
+cmake-build-debug

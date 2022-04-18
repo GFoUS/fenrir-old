@@ -17,3 +17,9 @@
 	path = vendor/json
 	url = https://github.com/nlohmann/json
 	branch = develop
+[submodule "models/samples"]
+	path = models/samples
+	url = https://github.com/KhronosGroup/glTF-Sample-Models
+[submodule "vendor/VulkanMemoryAllocator"]
+	path = vendor/VulkanMemoryAllocator
+	url = https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator

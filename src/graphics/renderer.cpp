@@ -3,30 +3,14 @@
 #define GLM_FORCE_RADIANS
 #include "glm/glm.hpp"
 #include "glm/gtc/matrix_transform.hpp"
+#include "glm/gtx/rotate_vector.hpp"
 #include "chrono"
 #include "core/core.h"
 #include "vulkan/uniform.h"
 
-const std::vector<Vertex> vertexData = {
-    {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
-    {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
-    {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
-    {{-0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}}
-};
+Renderer::Renderer(Window *window) : context(window), model(&this->context, "models/samples/2.0/2CylinderEngine/glTF/2CylinderEngine.gltf") {}
 
-const std::vector<uint32_t> indexData = {
-    0, 1, 2, 2, 3, 0
-};
-
-Renderer::Renderer(Window *window) : context(window), model(&this->context, "models/Box.gltf") {
-    this->vertices = VertexBuffer(&context, vertexData);
-    this->indices = IndexBuffer(&context, indexData);
-
-    context.BindVertexBuffer(vertices);
-    context.BindIndexBuffer(indices);
-}
-
-Renderer::~Renderer() {}
+Renderer::~Renderer() = default;
 
 void Renderer::OnTick() {
     vkWaitForFences(context.device, 1, &context.inFlightFence, VK_TRUE, UINT64_MAX);
@@ -43,9 +27,10 @@ void Renderer::OnTick() {
     auto currentTime = std::chrono::high_resolution_clock::now();
     float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
     UniformBufferObject ubo{};
-    ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-    ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-    ubo.proj = glm::perspective(glm::radians(45.0f), context.extent.width / (float) context.extent.height, 0.1f, 10.0f);
+    glm::mat4 rotation = glm::rotate(glm::mat4(1.0f), glm::radians(90.0f * time), glm::vec3(0.0f, 0.0f, 1.0f));
+    glm::vec3 eye = glm::vec3(glm::vec4(700.0f, 700.0f, 700.0f, 0.0f) * rotation);
+    ubo.view = glm::lookAt(eye, glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    ubo.proj = glm::perspective(glm::radians(45.0f), context.extent.width / (float) context.extent.height, 1.0f, 10000.0f);
     ubo.proj[1][1] *= -1;
 
     void* data;
@@ -54,7 +39,9 @@ void Renderer::OnTick() {
     vkUnmapMemory(context.device, context.uniformBufferMemory);
 
     vkResetCommandBuffer(context.commandBuffer, 0);
-    context.RecordCommandBuffer(context.commandBuffer, imageIndex);
+    context.StartCommandBuffer(context.commandBuffer, imageIndex);
+    this->model.Render(context.commandBuffer);
+    context.EndCommandBuffer(context.commandBuffer);
 
     VkSubmitInfo submitInfo{};
     VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT};
@@ -83,8 +70,4 @@ void Renderer::OnTick() {
     if (presentResult != VK_SUCCESS) {
         CRITICAL("Vulkan presentation failed with error code: {}", presentResult);
     }
-}
-
-void Renderer::BindModel() {
-    
 }

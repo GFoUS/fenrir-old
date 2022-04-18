@@ -16,8 +16,9 @@ file(GLOB SRC
     "src/*.cpp"
 )
 
-include_directories("src")
-include_directories("vendor/glm")
+include_directories(src)
+include_directories(vendor/glm)
+include_directories(vendor/VulkanMemoryAllocator/include)
 
 add_executable(fenrir ${SRC})
 target_link_libraries(fenrir PRIVATE spdlog::spdlog glfw vulkan nlohmann_json::nlohmann_json)

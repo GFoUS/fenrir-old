@@ -115,7 +115,7 @@ void CreateBuffer(const Context* context, VkBuffer& buffer, VkDeviceMemory& buff
     allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     allocInfo.allocationSize = requirements.size;
     allocInfo.memoryTypeIndex = memoryTypeIndex;
-    
+
     VkResult allocResult = vkAllocateMemory(context->device, &allocInfo, nullptr, &bufferMemory);
     if (allocResult != VK_SUCCESS) {
         CRITICAL("Allocation failed with error code: {}", allocResult);
@@ -135,7 +135,7 @@ void CopyBuffer(const Context* context, VkBuffer src, VkBuffer dst, VkDeviceSize
     if (allocResult != VK_SUCCESS) {
         CRITICAL("Command buffer alocation during copy failed with error code: {}", allocResult);
     }
-    
+
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -167,4 +167,24 @@ void CopyBuffer(const Context* context, VkBuffer src, VkBuffer dst, VkDeviceSize
     vkQueueWaitIdle(context->graphics);
 
     vkFreeCommandBuffers(context->device, context->commandPool, 1, &commandBuffer);
+}
+
+uint32_t Pad(uint32_t value, uint32_t align) {
+    if (align > 0) {
+        return (value + align - 1) & ~(align - 1);
+    }
+    return value;
+}
+
+
+VkSampleCountFlagBits GetMaxUsableSampleCount(VkPhysicalDeviceProperties physicalDeviceProperties) {
+    VkSampleCountFlags counts = physicalDeviceProperties.limits.framebufferColorSampleCounts & physicalDeviceProperties.limits.framebufferDepthSampleCounts;
+    if (counts & VK_SAMPLE_COUNT_64_BIT) { return VK_SAMPLE_COUNT_64_BIT; }
+    if (counts & VK_SAMPLE_COUNT_32_BIT) { return VK_SAMPLE_COUNT_32_BIT; }
+    if (counts & VK_SAMPLE_COUNT_16_BIT) { return VK_SAMPLE_COUNT_16_BIT; }
+    if (counts & VK_SAMPLE_COUNT_8_BIT) { return VK_SAMPLE_COUNT_8_BIT; }
+    if (counts & VK_SAMPLE_COUNT_4_BIT) { return VK_SAMPLE_COUNT_4_BIT; }
+    if (counts & VK_SAMPLE_COUNT_2_BIT) { return VK_SAMPLE_COUNT_2_BIT; }
+
+    return VK_SAMPLE_COUNT_1_BIT;
 }

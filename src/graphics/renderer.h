@@ -1,6 +1,5 @@
 #pragma once
 
-#include "vulkan/index.h"
 #include "vulkan/context.h"
 #include "window.h"
 #include "model.h"
@@ -11,10 +10,7 @@ public:
     ~Renderer();
 
     virtual void OnTick() override;
-    void BindModel();
 private:
     Context context;
-    VertexBuffer vertices;
-    IndexBuffer indices;
     Model model;
 };
