@@ -4,16 +4,19 @@
 #include "GLFW/glfw3.h"
 #include "uniform.h"
 #include "vertex.h"
+#include "image.h"
 
 const std::vector<const char*> instanceExtensions = {};
 const std::vector<const char*> validationLayers = {"VK_LAYER_KHRONOS_validation"};
 const std::vector<const char*> deviceExtensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
 
 Context::Context(Window* window) : window(window) {
+    INFO("Initializing Vulkan");
+
     this->CreateDevice();
     this->CreateSwapchain();
-    this->depthImage = std::make_unique<Image>(this->allocator, this->extent.width, this->extent.height, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, this->msaaSamples);
-    this->colorImage = std::make_unique<Image>(this->allocator, this->extent.width, this->extent.height, this->format.format, VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, this->msaaSamples);
+    this->depthImage = std::make_unique<Image>(this, this->extent.width, this->extent.height, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, this->msaaSamples);
+    this->colorImage = std::make_unique<Image>(this, this->extent.width, this->extent.height, this->format.format, VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, this->msaaSamples);
     this->CreatePipeline();
     this->CreateUniformBuffer();
 
@@ -161,6 +164,7 @@ void Context::CreateDevice() {
     }
     
     VkPhysicalDeviceFeatures deviceFeatures{};
+    deviceFeatures.samplerAnisotropy = VK_TRUE;
 
     VkDeviceCreateInfo deviceInfo{};
     deviceInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -384,8 +388,18 @@ void Context::CreatePipeline() {
     viewProjectionLayout.bindingCount = 1;
     viewProjectionLayout.pBindings = &viewProjectionLayoutBinding;
 
+    VkDescriptorSetLayoutBinding textureBinding{};
+    textureBinding.binding = 0;
+    textureBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    textureBinding.descriptorCount = 1;
+    textureBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    VkDescriptorSetLayoutCreateInfo textureLayout{};
+    textureLayout.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    textureLayout.bindingCount = 1;
+    textureLayout.pBindings = &textureBinding;
 
-    std::vector<VkDescriptorSetLayoutCreateInfo> layoutInfos = {modelLayout, viewProjectionLayout}; // First is for model matrix, second is for view and projection
+
+    std::vector<VkDescriptorSetLayoutCreateInfo> layoutInfos = {modelLayout, viewProjectionLayout, textureLayout};
     this->descriptorSetLayouts.resize(layoutInfos.size());
 
     for (uint32_t i = 0; i < layoutInfos.size(); i++) {
@@ -493,7 +507,7 @@ void Context::CreatePipeline() {
     fragment.Destroy();
 
     for (const auto& imageView : this->imageViews) {
-        std::array<VkImageView, 3> framebufferAttachments = {this->colorImage->GetImageView(this->device, VK_IMAGE_ASPECT_COLOR_BIT), this->depthImage->GetImageView(this->device, VK_IMAGE_ASPECT_DEPTH_BIT), imageView};
+        std::array<VkImageView, 3> framebufferAttachments = {this->colorImage->GetImageView(VK_IMAGE_ASPECT_COLOR_BIT), this->depthImage->GetImageView(VK_IMAGE_ASPECT_DEPTH_BIT), imageView};
         VkFramebufferCreateInfo framebufferInfo{};
         framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
         framebufferInfo.renderPass = renderPass;
@@ -613,5 +627,44 @@ void Context::CreateUniformBuffer() {
     vkUpdateDescriptorSets(this->device, 1, &descriptorWrite, 0, nullptr);
 }
 
-void Context::CreateDepthBuffer() {
+void Context::StartAndSubmitCommandBuffer(VkQueue queue, const std::function<void(VkCommandBuffer)>& body) const {
+    VkCommandBufferAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocInfo.commandPool = this->commandPool;
+    allocInfo.commandBufferCount = 1;
+
+    VkCommandBuffer cmdBuffer;
+    VkResult allocResult = vkAllocateCommandBuffers(this->device, &allocInfo, &cmdBuffer);
+    if (allocResult != VK_SUCCESS) {
+        CRITICAL("Command buffer allocation during copy failed with error code: {}", allocResult);
+    }
+
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    VkResult beginResult = vkBeginCommandBuffer(cmdBuffer, &beginInfo);
+    if (beginResult != VK_SUCCESS) {
+        CRITICAL("Beginning copy command buffer failed with error code: {}", beginResult);
+    }
+
+    body(cmdBuffer);
+
+    VkResult endResult = vkEndCommandBuffer(cmdBuffer);
+    if (endResult != VK_SUCCESS) {
+        CRITICAL("Ending copy command buffer failed with error code: {}", endResult);
+    }
+
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &cmdBuffer;
+
+    VkResult submitResult = vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE);
+    if (submitResult != VK_SUCCESS) {
+        CRITICAL("Submitting copy command buffer failed with error code: {}", submitResult);
+    }
+    vkQueueWaitIdle(queue);
+
+    vkFreeCommandBuffers(this->device, this->commandPool, 1, &cmdBuffer);
 }

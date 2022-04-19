@@ -8,6 +8,3 @@
 #include "log.h"
 #include "optional"
 #include "fstream"
-
-#define WIDTH 640
-#define HEIGHT 480

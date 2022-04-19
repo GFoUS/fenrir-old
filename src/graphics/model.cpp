@@ -6,11 +6,15 @@
 #include "glm/gtc/type_ptr.hpp"
 
 #include "vulkan/context.h"
+#include "vulkan/image.h"
 
 using namespace nlohmann;
 
 Model::Model(Context* renderContext, const std::string& path, glm::mat4 globalTransform) {
-    this->context = {renderContext, path, 0, nullptr, globalTransform};
+    this->context.renderContext = renderContext;
+    this->context.filePath = path;
+    this->context.matrixIndex = 0;
+    this->context.globalTransform = globalTransform;
 
     std::ifstream file(path);
     if (!file.is_open()) {
@@ -32,7 +36,7 @@ Model::Model(Context* renderContext, const std::string& path, glm::mat4 globalTr
         this->nodes.push_back(std::make_unique<Node>(&context, nullptr, data, data["nodes"][nodeIndex]));
     }
 
-    // Model matrices
+    // Get model matrices
     std::vector<glm::mat4> matrices;
     for (auto& node : this->nodes) {
         std::vector<glm::mat4> nodeMatrices = node->GetMatrices();
@@ -47,47 +51,189 @@ Model::Model(Context* renderContext, const std::string& path, glm::mat4 globalTr
 
     this->modelMatricesData = std::make_unique<Buffer<uint8_t>>(renderContext, matricesData, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
 
-    VkDescriptorPoolSize poolSize{};
-    poolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-    poolSize.descriptorCount = 1;
+    // Get texture data
+    if (data.contains("textures")) {
+        std::vector<json> textures = data["textures"];
+        context.textures.resize(textures.size());
+        for (uint32_t i = 0; i < textures.size(); i++) {
+            json t = textures[i];
+            if (!t.contains("source")) {
+                CRITICAL("Texture missing source");
+            }
+
+            uint32_t imageIndex = t["source"];
+            json image = data["images"][imageIndex];
+
+            if (image.contains("bufferView")) {
+                CRITICAL("Loading buffers from a buffer view isn't supported yet");
+            }
+
+            std::string uri = image["uri"];
+            context.textures[i] = Image::LoadImage(context.renderContext, context.filePath.replace_filename(uri));
+            INFO("Loaded texture {} in slot {}", uri, i);
+
+            if (t.contains("sampler")) {
+                uint32_t samplerIndex = t["sampler"];
+                json s = data["samplers"][samplerIndex];
+
+                VkFilter magFilter = VK_FILTER_NEAREST;
+                VkFilter minFilter = VK_FILTER_NEAREST;
+
+                if (s.contains("magFilter")) {
+                    switch ((uint32_t)s["magFilter"]) {
+                        case 9728: // 9728 = Nearest
+                        case 9984: // 9984 = NearestMipmapNearest
+                        case 9986: // 9986 = NearestMipmapLinear
+                            magFilter = VK_FILTER_NEAREST;
+                            break;
+                        case 9729: // 9729 = Linear
+                        case 9985: // 9985 = LinearMipmapNearest
+                        case 9987: // 9987 = LinearMipmapLinear
+                            magFilter = VK_FILTER_LINEAR;
+                            break;
+                        default:
+                            CRITICAL("Unknown minFilter");
+                    }
+                }
+                if (s.contains("minFilter")) {
+                    switch ((uint32_t)s["minFilter"]) {
+                        case 9728: // 9728 = Nearest
+                        case 9984: // 9984 = NearestMipmapNearest
+                        case 9986: // 9986 = NearestMipmapLinear
+                            minFilter = VK_FILTER_NEAREST;
+                            break;
+                        case 9729: // 9729 = Linear
+                        case 9985: // 9985 = LinearMipmapNearest
+                        case 9987: // 9987 = LinearMipmapLinear
+                            minFilter = VK_FILTER_LINEAR;
+                            break;
+                        default:
+                        CRITICAL("Unknown minFilter");
+                    }
+                }
+
+                VkSamplerAddressMode wrapS = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+                VkSamplerAddressMode wrapT = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+
+                if (s.contains("wrapS")) {
+                    switch ((uint32_t)s["wrapS"]) {
+                        case 33071: // 33071 = ClampToEdge
+                            wrapS = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+                            break;
+                        case 10497: // 10497 = Repeat
+                            wrapS = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+                            break;
+                        case 33648: // 33648 = MirroredRepeat
+                            wrapS = VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
+                            break;
+                        default:
+                            CRITICAL("Unknown wrapS");
+                    }
+                }
+                if (s.contains("wrapT")) {
+                    switch ((uint32_t)s["wrapT"]) {
+                        case 33071: // 33071 = ClampToEdge
+                            wrapT = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+                            break;
+                        case 10497: // 10497 = Repeat
+                            wrapT = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+                            break;
+                        case 33648: // 33648 = MirroredRepeat
+                            wrapT = VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
+                            break;
+                        default:
+                            CRITICAL("Unknown wrapT");
+                    }
+                }
+                context.textures[i]->GetSampler(magFilter, minFilter, wrapS, wrapT); // Initial get creates it with these parameters
+            }
+        }
+    }
+
+    VkDescriptorPoolSize modelMatricesSize{};
+    modelMatricesSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+    modelMatricesSize.descriptorCount = 1;
+    VkDescriptorPoolSize textureSize{};
+    textureSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    textureSize.descriptorCount = context.textures.size();
+    std::array<VkDescriptorPoolSize, 2> poolSizes = {modelMatricesSize, textureSize};
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    poolInfo.poolSizeCount = 1;
-    poolInfo.pPoolSizes = &poolSize;
-    poolInfo.maxSets = 1;
+    poolInfo.poolSizeCount = poolSizes.size();
+    poolInfo.pPoolSizes = poolSizes.data();
+    poolInfo.maxSets = context.textures.size() + 1;
 
     VkResult poolResult = vkCreateDescriptorPool(renderContext->device, &poolInfo, nullptr, &this->descriptorPool);
     if (poolResult != VK_SUCCESS) {
         CRITICAL("Descriptor pool creation failed with error code: {}", poolResult);
     }
 
-    VkDescriptorSetAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    allocInfo.descriptorPool = this->descriptorPool;
-    allocInfo.descriptorSetCount = 1;
-    allocInfo.pSetLayouts = &renderContext->descriptorSetLayouts[0]; // Set to first set which is the model matrix
+    VkDescriptorSetAllocateInfo matricesAllocInfo{};
+    matricesAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    matricesAllocInfo.descriptorPool = this->descriptorPool;
+    matricesAllocInfo.descriptorSetCount = 1;
+    matricesAllocInfo.pSetLayouts = &renderContext->descriptorSetLayouts[0]; // Set to first set which is the model matrix
 
-    VkResult allocResult = vkAllocateDescriptorSets(renderContext->device, &allocInfo, &context.matrixDescriptorSet);
-    if (allocResult != VK_SUCCESS) {
-        CRITICAL("Descriptor set allocation failed with error code: {}", allocResult);
+    VkResult matricesAllocResult = vkAllocateDescriptorSets(renderContext->device, &matricesAllocInfo, &context.matrixDescriptorSet);
+    if (matricesAllocResult != VK_SUCCESS) {
+        CRITICAL("Descriptor set allocation failed with error code: {}", matricesAllocResult);
+    }
+
+    std::vector<VkDescriptorSetLayout> textureLayouts(context.textures.size(), renderContext->descriptorSetLayouts[2]);
+    VkDescriptorSetAllocateInfo textureAllocInfo{};
+    textureAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    textureAllocInfo.descriptorPool = this->descriptorPool;
+    textureAllocInfo.descriptorSetCount = context.textures.size();
+    textureAllocInfo.pSetLayouts = textureLayouts.data();
+
+    context.textureSets.resize(context.textures.size());
+    VkResult textureAllocResult = vkAllocateDescriptorSets(renderContext->device, &textureAllocInfo, context.textureSets.data());
+    if (textureAllocResult != VK_SUCCESS) {
+        CRITICAL("Descriptor set allocation failed with error code: {}", textureAllocResult);
     }
 
     VkDescriptorBufferInfo bufferInfo{};
     bufferInfo.buffer = this->modelMatricesData->buffer;
     bufferInfo.offset = 0;
     bufferInfo.range = sizeof(glm::mat4);
+    VkWriteDescriptorSet bufferWrite{};
+    bufferWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    bufferWrite.dstSet = context.matrixDescriptorSet;
+    bufferWrite.dstBinding = 0;
+    bufferWrite.dstArrayElement = 0;
+    bufferWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+    bufferWrite.descriptorCount = 1;
+    bufferWrite.pBufferInfo = &bufferInfo;
 
-    VkWriteDescriptorSet descriptorWrite{};
-    descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    descriptorWrite.dstSet = context.matrixDescriptorSet;
-    descriptorWrite.dstBinding = 0;
-    descriptorWrite.dstArrayElement = 0;
-    descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-    descriptorWrite.descriptorCount = 1;
-    descriptorWrite.pBufferInfo = &bufferInfo;
+    std::vector<VkWriteDescriptorSet> descriptorWrites(context.textures.size() + 1);
+    std::vector<VkDescriptorImageInfo*> imageInfos(context.textures.size());
 
-    vkUpdateDescriptorSets(renderContext->device, 1, &descriptorWrite, 0, nullptr);
+    for (uint32_t i = 0; i < context.textures.size(); i++) {
+        auto* imageInfo = new VkDescriptorImageInfo();
+        imageInfo->imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        imageInfo->imageView = context.textures[i]->GetImageView(VK_IMAGE_ASPECT_COLOR_BIT);
+        imageInfo->sampler = context.textures[i]->GetSampler();
+
+        VkWriteDescriptorSet textureWrite{};
+        textureWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        textureWrite.dstSet = context.textureSets[i];
+        textureWrite.dstBinding = 0;
+        textureWrite.dstArrayElement = 0;
+        textureWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        textureWrite.descriptorCount = 1;
+        textureWrite.pImageInfo = imageInfo;
+
+        descriptorWrites[i] = textureWrite;
+    }
+
+    for (auto& imageInfo : imageInfos) {
+        delete imageInfo;
+    }
+
+    descriptorWrites[context.textures.size()] = bufferWrite;
+
+    vkUpdateDescriptorSets(renderContext->device, descriptorWrites.size(), descriptorWrites.data(), 0, nullptr);
 
     INFO("Loaded model");
 }
@@ -280,6 +426,19 @@ Geometry::Geometry(ModelContext* context, Node* parent, nlohmann::json &data, nl
                 std::vector<float> baseColorFactor = pbr["baseColorFactor"];
                 color = {baseColorFactor[0], baseColorFactor[1], baseColorFactor[2]};
             }
+
+            if (pbr.contains("baseColorTexture")) {
+                json baseColorTexture = pbr["baseColorTexture"];
+                if (baseColorTexture.contains("index")) {
+                    this->textureIndex = baseColorTexture["index"];
+                    INFO("Using texture with index {}", this->textureIndex);
+                }
+                if (baseColorTexture.contains("texCoord")) {
+                    this->textureCoordIndex = baseColorTexture["texCoord"];
+                } else {
+                    this->textureCoordIndex = 0;
+                }
+            }
         }
     }
 
@@ -287,6 +446,24 @@ Geometry::Geometry(ModelContext* context, Node* parent, nlohmann::json &data, nl
     if (attributes.contains("POSITION")) {
         uint32_t vertexAccessorIndex = attributes["POSITION"];
         json vertexAccessor = data["accessors"][vertexAccessorIndex];
+
+        uint32_t normalCount, normalSize;
+        std::vector<char> normalBuffer;
+
+        if (attributes.contains("NORMAL")) {
+            uint32_t normalAccessorIndex = attributes["NORMAL"];
+            json normalAccessor = data["accessors"][normalAccessorIndex];
+            normalBuffer = readAccessorData(context->filePath, data, normalAccessor, normalCount, normalSize);
+        }
+
+        std::vector<char> uvBuffer;
+
+        if (attributes.contains("TEXCOORD_" + std::to_string(this->textureCoordIndex))) {
+            uint32_t uvAccessorIndex = attributes["TEXCOORD_" + std::to_string(this->textureCoordIndex)];
+            json uvAccessor = data["accessors"][uvAccessorIndex];
+            uint32_t uvCount, uvSize;
+            uvBuffer = readAccessorData(context->filePath, data, uvAccessor, uvCount, uvSize);
+        }
 
         uint32_t count, size;
         std::vector<char> buffer = readAccessorData(context->filePath, data, vertexAccessor, count, size);
@@ -297,7 +474,21 @@ Geometry::Geometry(ModelContext* context, Node* parent, nlohmann::json &data, nl
             position.x = *(float*)(buffer.data() + i * 12 + 0);
             position.y = *(float*)(buffer.data() + i * 12 + 4);
             position.z = *(float*)(buffer.data() + i * 12 + 8);
-            this->vertices[i] = {position, color};
+
+            glm::vec3 normal;
+            if (attributes.contains("NORMAL")) {
+                normal.x = *(float*)(normalBuffer.data() + i * 12 + 0);
+                normal.y = *(float*)(normalBuffer.data() + i * 12 + 4);
+                normal.z = *(float*)(normalBuffer.data() + i * 12 + 8);
+            }
+
+            glm::vec2 uv;
+            if (attributes.contains("TEXCOORD_" + std::to_string(this->textureCoordIndex))) {
+                uv.x = *(float*)(uvBuffer.data() + i * 8 + 0);
+                uv.y = *(float*)(uvBuffer.data() + i * 8 + 4);
+            }
+
+            this->vertices[i] = {position, color, normal, uv};
         }
 
         this->vertexBuffer = std::make_unique<Buffer<Vertex>>(context->renderContext, this->vertices, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
@@ -335,6 +526,7 @@ void Geometry::Render(VkCommandBuffer buffer) const {
     VkDeviceSize offsets[] = {0};
     vkCmdBindVertexBuffers(buffer, 0, 1, &this->vertexBuffer->buffer, offsets);
     vkCmdBindIndexBuffer(buffer, this->indexBuffer->buffer, 0, VK_INDEX_TYPE_UINT32);
+    vkCmdBindDescriptorSets(buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, context->renderContext->pipelineLayout, 2, 1, &context->textureSets[this->textureIndex], 0, nullptr);
     vkCmdDrawIndexed(buffer, this->indices.size(), 1, 0, 0, 0);
 }
 

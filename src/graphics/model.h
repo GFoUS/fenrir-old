@@ -4,6 +4,7 @@
 #include "vulkan/buffer.h"
 #include "vulkan/vertex.h"
 #include "vulkan/uniform.h"
+#include "vulkan/image.h"
 
 #include "nlohmann/json.hpp"
 
@@ -14,6 +15,9 @@ struct ModelContext {
     uint32_t matrixIndex;
     VkDescriptorSet matrixDescriptorSet;
     glm::mat4 globalTransform;
+
+    std::vector<VkDescriptorSet> textureSets;
+    std::vector<std::unique_ptr<Image>> textures;
 };
 
 struct Geometry {
@@ -25,6 +29,8 @@ struct Geometry {
     ModelContext* context;
     std::vector<Vertex> vertices;
     std::vector<uint32_t> indices;
+    uint32_t textureIndex;
+    uint32_t textureCoordIndex;
     std::unique_ptr<Buffer<Vertex>> vertexBuffer;
     std::unique_ptr<Buffer<uint32_t>> indexBuffer;
 };

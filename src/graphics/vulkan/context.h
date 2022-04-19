@@ -6,7 +6,8 @@
 #include "utils.h"
 #include "shader.h"
 #include "vma.h"
-#include "image.h"
+
+class Image;
 
 struct Context {
     Context(Window* window);
@@ -16,10 +17,10 @@ struct Context {
     void CreateSwapchain();
     void CreatePipeline();
     void CreateUniformBuffer();
-    void CreateDepthBuffer();
 
     void StartCommandBuffer(VkCommandBuffer buffer, uint32_t imageIndex);
     void EndCommandBuffer(VkCommandBuffer buffer);
+    void StartAndSubmitCommandBuffer(VkQueue queue, const std::function<void(VkCommandBuffer)>& body) const;
 
     VkInstance instance;
     VkPhysicalDevice physical;

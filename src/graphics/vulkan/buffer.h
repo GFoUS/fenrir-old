@@ -32,6 +32,18 @@ public:
         if (!this->isDestroyed) this->Destroy();
     }
 
+    void CopyTo(Buffer<T> &dest, VkCommandBuffer commandBuffer = nullptr) {
+        if (commandBuffer == nullptr) {
+            context->StartAndSubmitCommandBuffer(context->graphics, [this, &dest](VkCommandBuffer commandBuffer) {this->CopyTo(dest, commandBuffer);});
+        } else {
+            VkBufferCopy copy{};
+            copy.srcOffset = 0;
+            copy.dstOffset = 0;
+            copy.size = this->size;
+            vkCmdCopyBuffer(commandBuffer, this->buffer, dest.buffer, 1, &copy);
+        }
+    }
+
     void Update(std::vector<T> data) {
         void* mapping;
         vmaMapMemory(context->allocator, this->allocation, &mapping);
@@ -48,8 +60,8 @@ public:
     VmaAllocation allocation{};
     uint32_t size{};
 
-private:
     Context* context;
+private:
     bool isDestroyed = false;
 };
 

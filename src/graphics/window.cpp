@@ -14,7 +14,14 @@ Window::Window(std::vector<Event*>* eventBus) {
 
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
-    this->window = glfwCreateWindow(WIDTH, HEIGHT, "FENRIR", NULL, NULL);
+    glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
+    GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+    const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+    glfwWindowHint(GLFW_RED_BITS, mode->redBits);
+    glfwWindowHint(GLFW_GREEN_BITS, mode->greenBits);
+    glfwWindowHint(GLFW_BLUE_BITS, mode->blueBits);
+    glfwWindowHint(GLFW_REFRESH_RATE, mode->refreshRate);
+    this->window = glfwCreateWindow(mode->width, mode->height, "FENRIR", nullptr, nullptr);
     if (!this->window) {
         glfwTerminate();
         CRITICAL("Window creation failed, explosion imminent");
