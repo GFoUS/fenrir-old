@@ -10,3 +10,4 @@ build/
 .cache
 cmake-build-debug
 .idea
+models/Venator

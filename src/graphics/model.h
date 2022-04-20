@@ -29,8 +29,8 @@ struct Geometry {
     ModelContext* context;
     std::vector<Vertex> vertices;
     std::vector<uint32_t> indices;
-    uint32_t textureIndex;
-    uint32_t textureCoordIndex;
+    uint32_t textureIndex = 0;
+    uint32_t textureCoordIndex = 0;
     std::unique_ptr<Buffer<Vertex>> vertexBuffer;
     std::unique_ptr<Buffer<uint32_t>> indexBuffer;
 };
