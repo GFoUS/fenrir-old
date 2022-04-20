@@ -5,6 +5,7 @@
 #include "uniform.h"
 #include "vertex.h"
 #include "image.h"
+#include "descriptor.h"
 
 const std::vector<const char*> instanceExtensions = {};
 const std::vector<const char*> validationLayers = {"VK_LAYER_KHRONOS_validation"};
@@ -197,6 +198,8 @@ void Context::CreateDevice() {
     allocatorCreateInfo.pVulkanFunctions = &vulkanFunctions;
     allocatorCreateInfo.flags = 0;
     vmaCreateAllocator(&allocatorCreateInfo, &this->allocator);
+
+    this->descriptorAllocator->Init(this);
 }   
 
 void Context::CreateSwapchain() {

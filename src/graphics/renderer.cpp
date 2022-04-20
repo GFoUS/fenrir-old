@@ -9,7 +9,7 @@
 #include "vulkan/uniform.h"
 #include "vulkan/image.h"
 
-Renderer::Renderer(Window *window) : context(window), model(&this->context, "models/Venator/Venator_2k_01.gltf", glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f))) {}
+Renderer::Renderer(Window *window) : context(window), model(&this->context, "models/samples/2.0/Sponza/glTF/Sponza.gltf", glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f))) {}
 
 Renderer::~Renderer() = default;
 
@@ -29,8 +29,8 @@ void Renderer::OnTick() {
     float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
     UniformBufferObject ubo{};
     glm::mat4 rotation = glm::rotate(glm::mat4(1.0f), glm::radians(22.5f * time), glm::vec3(0.0f, 0.0f, 1.0f));
-    glm::vec3 eye = glm::vec3(glm::vec4(200.0f, 200.0f, 200.0f, 0.0f) * rotation);
-    ubo.view = glm::lookAt(eye, glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    glm::vec3 eye = glm::vec3(glm::vec4(100.0f, 100.0f, 100.0f, 0.0f) * rotation);
+    ubo.view = glm::lookAt(eye, glm::vec3(0.0f, 0.0f, 400.0f), glm::vec3(0.0f, 0.0f, 1.0f));
     ubo.proj = glm::perspective(glm::radians(45.0f), context.extent.width / (float) context.extent.height, 1.0f, 10000.0f);
     ubo.proj[1][1] *= -1;
 

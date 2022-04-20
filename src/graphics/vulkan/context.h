@@ -8,6 +8,7 @@
 #include "vma.h"
 
 class Image;
+class DescriptorAllocator;
 
 struct Context {
     Context(Window* window);
@@ -56,6 +57,7 @@ struct Context {
     VkDeviceMemory uniformBufferMemory;
     VkDescriptorPool descriptorPool;
     VkDescriptorSet descriptorSet;
+    DescriptorAllocator *descriptorAllocator;
 
     std::unique_ptr<Image> depthImage;
 

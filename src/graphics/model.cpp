@@ -214,6 +214,7 @@ Model::Model(Context* renderContext, const std::string& path, glm::mat4 globalTr
         imageInfo->imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         imageInfo->imageView = context.textures[i]->GetImageView(VK_IMAGE_ASPECT_COLOR_BIT);
         imageInfo->sampler = context.textures[i]->GetSampler();
+        imageInfos[i] = imageInfo;
 
         VkWriteDescriptorSet textureWrite{};
         textureWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -227,13 +228,13 @@ Model::Model(Context* renderContext, const std::string& path, glm::mat4 globalTr
         descriptorWrites[i] = textureWrite;
     }
 
-    for (auto& imageInfo : imageInfos) {
-        delete imageInfo;
-    }
-
     descriptorWrites[context.textures.size()] = bufferWrite;
 
     vkUpdateDescriptorSets(renderContext->device, descriptorWrites.size(), descriptorWrites.data(), 0, nullptr);
+
+    for (auto& imageInfo : imageInfos) {
+        delete imageInfo;
+    }
 
     INFO("Loaded model");
 }
