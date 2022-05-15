@@ -32,16 +32,12 @@ public:
         if (!this->isDestroyed) this->Destroy();
     }
 
-    void CopyTo(Buffer<T> &dest, VkCommandBuffer commandBuffer = nullptr) {
-        if (commandBuffer == nullptr) {
-            context->StartAndSubmitCommandBuffer(context->graphics, [this, &dest](VkCommandBuffer commandBuffer) {this->CopyTo(dest, commandBuffer);});
-        } else {
-            VkBufferCopy copy{};
-            copy.srcOffset = 0;
-            copy.dstOffset = 0;
-            copy.size = this->size;
-            vkCmdCopyBuffer(commandBuffer, this->buffer, dest.buffer, 1, &copy);
-        }
+    void CopyTo(Buffer<T> &dest, VkCommandBuffer commandBuffer) {
+        VkBufferCopy copy{};
+        copy.srcOffset = 0;
+        copy.dstOffset = 0;
+        copy.size = this->size;
+        vkCmdCopyBuffer(commandBuffer, this->buffer, dest.buffer, 1, &copy);
     }
 
     void Update(std::vector<T> data) {
@@ -54,6 +50,20 @@ public:
     void Destroy() {
         vmaDestroyBuffer(context->allocator, this->buffer, this->allocation);
         this->isDestroyed = true;
+    }
+
+    struct Ref {
+        Buffer<T> *buffer;
+        uint64_t offset;
+        uint64_t size;
+    };
+
+    Ref GetRef(uint64_t offset, uint64_t size) {
+        return {
+            this,
+            offset,
+            size
+        };
     }
 
     VkBuffer buffer{};

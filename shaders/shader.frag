@@ -22,5 +22,5 @@ void main() {
 
     vec3 ambient = ambientStrength * lightColor;
 
-    outColor = vec4(texture(texSampler, fragUV).rgb * (ambient + diffuse), 1.0);
+    outColor = vec4(texture(texSampler, fragUV).rgb * (ambient + diffuse), texture(texSampler, fragUV).a);
 }

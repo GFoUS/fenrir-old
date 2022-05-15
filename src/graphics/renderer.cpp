@@ -8,14 +8,49 @@
 #include "core/core.h"
 #include "vulkan/uniform.h"
 #include "vulkan/image.h"
+#include "fengui.h"
 
-Renderer::Renderer(Window *window) : context(window), model(&this->context, "models/samples/2.0/Sponza/glTF/Sponza.gltf", glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f))) {}
+Renderer::Renderer(Window *window) : context(window) {
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;       // Enable Keyboard Controls
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;           // Enable Docking
+    // io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;         // Enable Multi-Viewport / Platform Windows
+    ImGui::StyleColorsDark();
+
+    ImGui_ImplGlfw_InitForVulkan(window->GetRawWindow(), true);
+    ImGui_ImplVulkan_InitInfo imguiInfo{};
+    imguiInfo.Instance = context.instance;
+    imguiInfo.PhysicalDevice = context.physical;
+    imguiInfo.Device = context.device;
+    imguiInfo.QueueFamily = context.queueFamilies.graphics.value();
+    imguiInfo.Queue = context.graphics;
+    imguiInfo.DescriptorPool = context.descriptorPool;
+    imguiInfo.Subpass = 0;
+    imguiInfo.MinImageCount = context.images.size();
+    imguiInfo.ImageCount = context.images.size();
+    imguiInfo.MSAASamples = context.colorImage->samples;
+    ImGui_ImplVulkan_Init(&imguiInfo, context.renderPass);
+
+    context.StartAndSubmitCommandBuffer(context.graphics, [](VkCommandBuffer commandBuffer) {
+        ImGui_ImplVulkan_CreateFontsTexture(commandBuffer);
+    });
+    ImGui_ImplVulkan_DestroyFontUploadObjects();
+}
 
 Renderer::~Renderer() = default;
 
 void Renderer::OnTick() {
     vkWaitForFences(context.device, 1, &context.inFlightFence, VK_TRUE, UINT64_MAX);
     vkResetFences(context.device, 1, &context.inFlightFence);
+
+    ImGui_ImplVulkan_NewFrame();
+    ImGui_ImplGlfw_NewFrame();
+    ImGui::NewFrame();
+
+    ImGui::ShowDemoWindow();
+    ImGui::Render();
+    ImDrawData* imguiDrawData = ImGui::GetDrawData();
 
     uint32_t imageIndex;
     VkResult acquireResult = vkAcquireNextImageKHR(context.device, context.swapchain, UINT64_MAX, context.imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
@@ -41,7 +76,7 @@ void Renderer::OnTick() {
 
     vkResetCommandBuffer(context.commandBuffer, 0);
     context.StartCommandBuffer(context.commandBuffer, imageIndex);
-    this->model.Render(context.commandBuffer);
+    ImGui_ImplVulkan_RenderDrawData(imguiDrawData, context.commandBuffer);
     context.EndCommandBuffer(context.commandBuffer);
 
     VkSubmitInfo submitInfo{};
@@ -59,6 +94,9 @@ void Renderer::OnTick() {
     if (submitResult != VK_SUCCESS) {
         CRITICAL("Failed to submit draw command buffer with error code: {}", submitResult);
     }
+
+    ImGui::UpdatePlatformWindows();
+    ImGui::RenderPlatformWindowsDefault();
 
     VkPresentInfoKHR presentInfo{};
     presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;

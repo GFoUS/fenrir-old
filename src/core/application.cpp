@@ -16,7 +16,7 @@ void Application::Run() {
         }
 
         while (this->eventBus.size() != 0) {
-            for (int i = this->layerStack.size() - 1; i >= 0; i--) {
+            for (int64_t i = this->layerStack.size() - 1; i >= 0; i--) {
                 this->layerStack[i]->OnEvent(this->eventBus[0]);
             }
             delete this->eventBus[0]; // Free the event off the heap
