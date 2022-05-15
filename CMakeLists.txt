@@ -22,4 +22,4 @@ include_directories(vendor/VulkanMemoryAllocator/include)
 include_directories(vendor/stb)
 
 add_executable(fenrir ${SRC})
-target_link_libraries(fenrir PRIVATE spdlog::spdlog glfw vulkan nlohmann_json::nlohmann_json)
+target_link_libraries(fenrir PRIVATE spdlog::spdlog glfw Vulkan::Vulkan nlohmann_json::nlohmann_json)

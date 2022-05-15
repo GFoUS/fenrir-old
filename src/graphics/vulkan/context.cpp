@@ -198,8 +198,6 @@ void Context::CreateDevice() {
     allocatorCreateInfo.pVulkanFunctions = &vulkanFunctions;
     allocatorCreateInfo.flags = 0;
     vmaCreateAllocator(&allocatorCreateInfo, &this->allocator);
-
-    this->descriptorAllocator->Init(this);
 }   
 
 void Context::CreateSwapchain() {

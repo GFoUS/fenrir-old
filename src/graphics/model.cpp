@@ -69,7 +69,7 @@ Model::Model(Context* renderContext, const std::string& path, glm::mat4 globalTr
             }
 
             std::string uri = image["uri"];
-            context.textures[i] = Image::LoadImage(context.renderContext, context.filePath.replace_filename(uri));
+            context.textures[i] = Image::LoadImage(context.renderContext, context.filePath.replace_filename(uri).generic_string());
             INFO("Loaded texture {} in slot {}", uri, i);
 
             if (t.contains("sampler")) {
