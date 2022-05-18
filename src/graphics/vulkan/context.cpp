@@ -5,6 +5,7 @@
 #include "uniform.h"
 #include "vertex.h"
 #include "image.h"
+#include "pipeline.h"
 
 const std::vector<const char*> instanceExtensions = {};
 const std::vector<const char*> validationLayers = {"VK_LAYER_KHRONOS_validation"};
@@ -15,8 +16,6 @@ Context::Context(Window* window) : window(window) {
 
     this->CreateDevice();
     this->CreateSwapchain();
-    this->depthImage = std::make_unique<Image>(this, this->extent.width, this->extent.height, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, this->msaaSamples);
-    this->colorImage = std::make_unique<Image>(this, this->extent.width, this->extent.height, this->format.format, VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, this->msaaSamples);
     this->CreatePipeline();
     this->CreateUniformBuffer();
 
@@ -48,12 +47,10 @@ Context::~Context() {
     vkDestroyCommandPool(this->device, this->commandPool, nullptr);
     for (auto& framebuffer : this->framebuffers) {
         vkDestroyFramebuffer(this->device, framebuffer, nullptr);
-    }
-    this->depthImage->Destroy();
+    }   
     this->colorImage->Destroy();
-    vkDestroyPipeline(this->device, this->pipeline, nullptr);
-    vkDestroyRenderPass(this->device, this->renderPass, nullptr);
-    vkDestroyPipelineLayout(this->device, this->pipelineLayout, nullptr);
+    this->depthImage->Destroy();
+    this->pipeline->Destroy();
     for (auto& imageView : this->imageViews) {
         vkDestroyImageView(this->device, imageView, nullptr);
     }
@@ -299,231 +296,36 @@ void Context::CreateSwapchain() {
 void Context::CreatePipeline() {
     Shader vertex(this->device, "shaders/vert.spv", VERTEX);
     Shader fragment(this->device, "shaders/frag.spv", FRAGMENT);
-    VkPipelineShaderStageCreateInfo shaderStages[2] = {vertex.GetStageInfo(), fragment.GetStageInfo()};
 
-    auto bindingDescription = Vertex::GetBindingDescription();
-    auto attributeDescriptions = Vertex::GetAttributeDescriptions();
-    VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
-    vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    vertexInputInfo.vertexBindingDescriptionCount = 1;
-    vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
-    vertexInputInfo.vertexAttributeDescriptionCount = attributeDescriptions.size();
-    vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
+    PipelineBuilder builder(this);
+    this->pipeline = builder
+        .SetDepthTesting(true)
+        .SetMsaaSamples(this->msaaSamples)
+        .SetShader(&vertex)
+        .SetShader(&fragment)
+        .SetViewport(this->extent.width, this->extent.height)
+        .Build();
+    
+    this->colorImage = std::make_unique<Image>(this, this->extent.width, this->extent.height, this->format.format, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, this->msaaSamples);
+    this->depthImage = std::make_unique<Image>(this, this->extent.width, this->extent.height, VK_FORMAT_D32_SFLOAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, this->msaaSamples);
 
-    VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
-    inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-    inputAssembly.primitiveRestartEnable = VK_FALSE;
+    this->framebuffers.resize(this->imageViews.size());
+    for (uint32_t i = 0; i < this->imageViews.size(); i++) {
+        std::vector<VkImageView> attachments = { this->colorImage->GetImageView(VK_IMAGE_ASPECT_COLOR_BIT), this->depthImage->GetImageView(VK_IMAGE_ASPECT_DEPTH_BIT), this->imageViews[i] };
 
-    VkViewport viewport{};
-    viewport.x = 0.0f;
-    viewport.y = 0.0f;
-    viewport.width = (float) this->extent.width;
-    viewport.height = (float) this->extent.height;
-    viewport.minDepth = 0.0f;
-    viewport.maxDepth = 1.0f;
-
-    VkRect2D scissor{};
-    scissor.offset = {0, 0};
-    scissor.extent = extent;
-
-    VkPipelineViewportStateCreateInfo viewportState{};
-    viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-    viewportState.viewportCount = 1;
-    viewportState.pViewports = &viewport;
-    viewportState.scissorCount = 1;
-    viewportState.pScissors = &scissor;
-
-    VkPipelineRasterizationStateCreateInfo rasterizer{};
-    rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-    rasterizer.depthClampEnable = VK_FALSE;
-    rasterizer.rasterizerDiscardEnable = VK_FALSE;
-    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
-    rasterizer.lineWidth = 1.0f;
-    rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
-    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-    rasterizer.depthBiasEnable = VK_FALSE;
-
-    VkPipelineMultisampleStateCreateInfo multisampling{};
-    multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-    multisampling.sampleShadingEnable = VK_FALSE;
-    multisampling.rasterizationSamples = this->msaaSamples;
-
-    VkPipelineColorBlendAttachmentState colorBlendAttachment{};
-    colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-    colorBlendAttachment.blendEnable = VK_FALSE;
-
-    VkPipelineColorBlendStateCreateInfo colorBlending{};
-    colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    colorBlending.logicOpEnable = VK_FALSE;
-    colorBlending.attachmentCount = 1;
-    colorBlending.pAttachments = &colorBlendAttachment;
-
-    VkPipelineDepthStencilStateCreateInfo depthStencil{};
-    depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-    depthStencil.depthTestEnable = VK_TRUE;
-    depthStencil.depthWriteEnable = VK_TRUE;
-    depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
-    depthStencil.depthBoundsTestEnable = VK_FALSE;
-    depthStencil.depthBoundsTestEnable = VK_FALSE;
-    depthStencil.stencilTestEnable = VK_FALSE;
-
-    VkDescriptorSetLayoutBinding modelLayoutBinding{};
-    modelLayoutBinding.binding = 0;
-    modelLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-    modelLayoutBinding.descriptorCount = 1;
-    modelLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-    VkDescriptorSetLayoutCreateInfo modelLayout{};
-    modelLayout.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    modelLayout.bindingCount = 1;
-    modelLayout.pBindings = &modelLayoutBinding;
-
-    VkDescriptorSetLayoutBinding viewProjectionLayoutBinding{};
-    viewProjectionLayoutBinding.binding = 0;
-    viewProjectionLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    viewProjectionLayoutBinding.descriptorCount = 1;
-    viewProjectionLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-    VkDescriptorSetLayoutCreateInfo viewProjectionLayout{};
-    viewProjectionLayout.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    viewProjectionLayout.bindingCount = 1;
-    viewProjectionLayout.pBindings = &viewProjectionLayoutBinding;
-
-    VkDescriptorSetLayoutBinding textureBinding{};
-    textureBinding.binding = 0;
-    textureBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    textureBinding.descriptorCount = 1;
-    textureBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-    VkDescriptorSetLayoutCreateInfo textureLayout{};
-    textureLayout.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    textureLayout.bindingCount = 1;
-    textureLayout.pBindings = &textureBinding;
-
-
-    std::vector<VkDescriptorSetLayoutCreateInfo> layoutInfos = {modelLayout, viewProjectionLayout, textureLayout};
-    this->descriptorSetLayouts.resize(layoutInfos.size());
-
-    for (uint32_t i = 0; i < layoutInfos.size(); i++) {
-        VkResult descriptorSetLayoutResult = vkCreateDescriptorSetLayout(this->device, &layoutInfos[i], nullptr, &this->descriptorSetLayouts[i]);
-        if (descriptorSetLayoutResult != VK_SUCCESS) {
-            CRITICAL("Descriptor set layout creation failed with error code: {}", descriptorSetLayoutResult);
-        }
-    }
-
-    VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
-    pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pipelineLayoutInfo.setLayoutCount = this->descriptorSetLayouts.size();
-    pipelineLayoutInfo.pSetLayouts = this->descriptorSetLayouts.data();
-
-    VkResult layoutResult = vkCreatePipelineLayout(this->device, &pipelineLayoutInfo, nullptr, &this->pipelineLayout);
-    if (layoutResult != VK_SUCCESS) {
-        CRITICAL("Vulkan pipeline layout creation failed with error code: {}", layoutResult);
-    }
-
-    VkAttachmentDescription colorAttachment{};
-    colorAttachment.format = this->format.format;
-    colorAttachment.samples = this->msaaSamples;
-    colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;  
-    colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    colorAttachment.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-    VkAttachmentReference colorAttachmentRef{};
-    colorAttachmentRef.attachment = 0;
-    colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-    VkAttachmentDescription depthAttachment{};
-    depthAttachment.format = this->depthImage->format;
-    depthAttachment.samples = this->msaaSamples;
-    depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-
-    VkAttachmentReference depthAttachmentRef{};
-    depthAttachmentRef.attachment = 1;
-    depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-
-    VkAttachmentDescription colorAttachmentResolve{};
-    colorAttachmentResolve.format = this->format.format;
-    colorAttachmentResolve.samples = VK_SAMPLE_COUNT_1_BIT;
-    colorAttachmentResolve.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    colorAttachmentResolve.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    colorAttachmentResolve.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    colorAttachmentResolve.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    colorAttachmentResolve.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    colorAttachmentResolve.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-
-    VkAttachmentReference colorAttachmentResolveRef{};
-    colorAttachmentResolveRef.attachment = 2;
-    colorAttachmentResolveRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-    VkSubpassDescription subpass{};
-    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    subpass.colorAttachmentCount = 1;
-    subpass.pColorAttachments = &colorAttachmentRef;
-    subpass.pDepthStencilAttachment = &depthAttachmentRef;
-    subpass.pResolveAttachments = &colorAttachmentResolveRef;
-
-    std::array<VkAttachmentDescription, 3> attachments = {colorAttachment, depthAttachment, colorAttachmentResolve};
-    VkRenderPassCreateInfo renderPassInfo{};
-    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-    renderPassInfo.attachmentCount = attachments.size();
-    renderPassInfo.pAttachments = attachments.data();
-    renderPassInfo.subpassCount = 1;
-    renderPassInfo.pSubpasses = &subpass;
-
-    VkResult renderPassResult = vkCreateRenderPass(this->device, &renderPassInfo, nullptr, &this->renderPass);
-    if (renderPassResult != VK_SUCCESS) {
-        CRITICAL("Vulkan render pass creation failed with error code: {}", renderPassResult);
-    }
-    INFO("Created render pass");
-
-    VkGraphicsPipelineCreateInfo pipelineInfo{};
-    pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    pipelineInfo.stageCount = 2;
-    pipelineInfo.pStages = shaderStages;
-    pipelineInfo.pVertexInputState = &vertexInputInfo;
-    pipelineInfo.pInputAssemblyState = &inputAssembly;
-    pipelineInfo.pViewportState = &viewportState;
-    pipelineInfo.pRasterizationState = &rasterizer;
-    pipelineInfo.pMultisampleState = &multisampling;
-    pipelineInfo.pColorBlendState = &colorBlending;
-    pipelineInfo.pDepthStencilState = &depthStencil;
-    pipelineInfo.layout = this->pipelineLayout;
-    pipelineInfo.renderPass = this->renderPass;
-    pipelineInfo.subpass = 0;
-
-    VkResult pipelineResult = vkCreateGraphicsPipelines(this->device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &this->pipeline);
-    if (pipelineResult != VK_SUCCESS) {
-        CRITICAL("Vulkan pipeline creation failed with error code: {}", pipelineResult);
-    }
-    INFO("Vulkan pipeline created");
-
-    vertex.Destroy();
-    fragment.Destroy();
-
-    for (const auto& imageView : this->imageViews) {
-        std::array<VkImageView, 3> framebufferAttachments = {this->colorImage->GetImageView(VK_IMAGE_ASPECT_COLOR_BIT), this->depthImage->GetImageView(VK_IMAGE_ASPECT_DEPTH_BIT), imageView};
         VkFramebufferCreateInfo framebufferInfo{};
         framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-        framebufferInfo.renderPass = renderPass;
-        framebufferInfo.attachmentCount = framebufferAttachments.size();
-        framebufferInfo.pAttachments = framebufferAttachments.data();
         framebufferInfo.width = this->extent.width;
         framebufferInfo.height = this->extent.height;
+        framebufferInfo.renderPass = this->pipeline->renderPass;
+        framebufferInfo.attachmentCount = attachments.size();
+        framebufferInfo.pAttachments = attachments.data();
         framebufferInfo.layers = 1;
 
-        VkFramebuffer framebuffer;
-        VkResult framebufferResult = vkCreateFramebuffer(this->device, &framebufferInfo, nullptr, &framebuffer);
+        VkResult framebufferResult = vkCreateFramebuffer(this->device, &framebufferInfo, nullptr, &this->framebuffers[i]);
         if (framebufferResult != VK_SUCCESS) {
             CRITICAL("Framebuffer creation failed with error code: {}", framebufferResult);
         }
-
-        this->framebuffers.push_back(framebuffer);
     }
 
     VkCommandPoolCreateInfo poolInfo{};
@@ -558,7 +360,7 @@ void Context::StartCommandBuffer(VkCommandBuffer buffer, uint32_t imageIndex) {
 
     VkRenderPassBeginInfo renderPassInfo{};
     renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    renderPassInfo.renderPass = renderPass;
+    renderPassInfo.renderPass = this->pipeline->renderPass;
     renderPassInfo.framebuffer = this->framebuffers[imageIndex];
     renderPassInfo.renderArea.offset = {0, 0};
     renderPassInfo.renderArea.extent = this->extent;
@@ -568,8 +370,8 @@ void Context::StartCommandBuffer(VkCommandBuffer buffer, uint32_t imageIndex) {
     renderPassInfo.clearValueCount = clearValues.size();
     renderPassInfo.pClearValues = clearValues.data();
     vkCmdBeginRenderPass(buffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-    vkCmdBindPipeline(buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, this->pipeline);
-    vkCmdBindDescriptorSets(buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, this->pipelineLayout, 1, 1, &this->descriptorSet, 0, nullptr);
+    vkCmdBindPipeline(buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, this->pipeline->pipeline);
+    //vkCmdBindDescriptorSets(buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, this->pipelineLayout, 1, 1, &this->descriptorSet, 0, nullptr);
 }
 
 void Context::EndCommandBuffer(VkCommandBuffer buffer) {
@@ -610,6 +412,7 @@ void Context::CreateUniformBuffer() {
         CRITICAL("Descriptor pool creation failed with error code: {}", poolResult);
     }
 
+    /*
     VkDescriptorSetAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
     allocInfo.descriptorPool = this->descriptorPool;
@@ -636,6 +439,7 @@ void Context::CreateUniformBuffer() {
     descriptorWrite.pBufferInfo = &bufferInfo;
 
     vkUpdateDescriptorSets(this->device, 1, &descriptorWrite, 0, nullptr);
+    */
 }
 
 void Context::StartAndSubmitCommandBuffer(VkQueue queue, const std::function<void(VkCommandBuffer)>& body) const {
@@ -679,3 +483,4 @@ void Context::StartAndSubmitCommandBuffer(VkQueue queue, const std::function<voi
 
     vkFreeCommandBuffers(this->device, this->commandPool, 1, &cmdBuffer);
 }
+

@@ -8,7 +8,13 @@
 template <class T> class Buffer {
 public:
     Buffer<T>() = default;
-    Buffer<T>(Context* context, std::vector<T> data, VkBufferUsageFlags usage) : context(context) {
+    Buffer<T>(Context* context, std::vector<T> data, VkBufferUsageFlags usage) {
+        this->Init(context, data, usage);
+    }
+
+    void Init(Context* context, std::vector<T> data, VkBufferUsageFlags usage) {
+        this->context = context;
+
         VkBufferCreateInfo bufferInfo{};
         bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
         bufferInfo.size = data.size() * sizeof(T);

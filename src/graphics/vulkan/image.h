@@ -23,7 +23,18 @@ public:
     VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT;
 
     Image() = default;
-    Image(Context* context, uint32_t width, uint32_t height, VkFormat format, VkImageUsageFlags usage, VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT, uint32_t mipLevels = 1) : context(context), format(format), width(width), height(height), mipLevels(mipLevels), samples(samples) {
+    Image(Context* context, uint32_t width, uint32_t height, VkFormat format, VkImageUsageFlags usage, VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT, uint32_t mipLevels = 1) {
+        this->Init(context, width, height, format, usage, samples, mipLevels);
+    }
+
+    void Init(Context *context, uint32_t width, uint32_t height, VkFormat format, VkImageUsageFlags usage, VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT, uint32_t mipLevels = 1) {
+        this->context = context;
+        this->format = format;
+        this->width = width;
+        this->height = height;
+        this->mipLevels = mipLevels;
+        this->samples = samples;
+
         VkImageCreateInfo imageInfo = {};
         imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
         imageInfo.imageType = VK_IMAGE_TYPE_2D;

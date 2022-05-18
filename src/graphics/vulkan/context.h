@@ -9,6 +9,7 @@
 
 class Image;
 class DescriptorAllocator;
+struct Pipeline;
 
 struct Context {
     Context(Window* window);
@@ -41,9 +42,7 @@ struct Context {
     std::vector<VkImageView> imageViews;
     std::vector<VkFramebuffer> framebuffers;
 
-    VkPipelineLayout pipelineLayout;
-    VkRenderPass renderPass;
-    VkPipeline pipeline;
+    Pipeline *pipeline;
 
     VkCommandPool commandPool;
     VkCommandBuffer commandBuffer;
@@ -59,8 +58,8 @@ struct Context {
     VkDescriptorSet descriptorSet;
     DescriptorAllocator *descriptorAllocator;
 
-    std::unique_ptr<Image> depthImage;
-
     VkSampleCountFlagBits msaaSamples{};
-    std::unique_ptr<Image> colorImage;
+
+    std::unique_ptr<Image> colorImage{};
+    std::unique_ptr<Image> depthImage{};
 };
