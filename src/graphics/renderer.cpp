@@ -63,7 +63,7 @@ Renderer::Renderer(Window *window) : context(window) {
         .SetResolveLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
         .Build();
 
-    this->model = std::make_unique<Model>(&context, "models/samples/2.0/Box/glTF/Box.gltf");
+    this->model = std::make_unique<Model>(&context, "models/samples/2.0/2CylinderEngine/glTF/2CylinderEngine.gltf");
 }
 
 Renderer::~Renderer() {

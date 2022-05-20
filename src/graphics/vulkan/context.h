@@ -6,6 +6,7 @@
 #include "utils.h"
 #include "shader.h"
 #include "vma.h"
+#include "descriptor.h"
 
 class Image;
 class DescriptorAllocator;

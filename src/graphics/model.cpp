@@ -38,6 +38,8 @@ Model::Model(Context* renderContext, const std::string& path, glm::mat4 globalTr
     context.vertexBuffer.Init(context.renderContext, context.vertices, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
     context.indexBuffer.Init(context.renderContext, context.indices, VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
 
+    INFO("Vertex buffer length: {}", context.vertices.size());
+
     INFO("Loaded model");
 }
 
@@ -219,7 +221,7 @@ Geometry::Geometry(ModelContext* context, Node* parent, nlohmann::json& data, nl
             position.y = *(float*)(buffer.data() + i * 12 + 4);
             position.z = *(float*)(buffer.data() + i * 12 + 8);
 
-            context->vertices[i] = { position, color };
+            context->vertices[this->mesh.vertices.offset + i] = { position, color };
         }
     }
 
@@ -236,15 +238,15 @@ Geometry::Geometry(ModelContext* context, Node* parent, nlohmann::json& data, nl
 
         for (uint32_t i = 0; i < count; i++) {
             if (sizeOfComponentType(indexAccessor["componentType"]) == 1) {
-                context->indices[i] = *(uint8_t*)(buffer.data() + i * 1);
+                context->indices[this->mesh.indices.offset + i] = *(uint8_t*)(buffer.data() + i * 1);
                 this->mesh.indices.size = size;
             }
             else if (sizeOfComponentType(indexAccessor["componentType"]) == 2) {
-                context->indices[i] = *(uint16_t*)(buffer.data() + i * 2);
+                context->indices[this->mesh.indices.offset + i] = *(uint16_t*)(buffer.data() + i * 2);
                 this->mesh.indices.size = size / 2;
             }
             else if (sizeOfComponentType(indexAccessor["componentType"]) == 4) {
-                context->indices[i] = *(uint32_t*)(buffer.data() + i * 4);
+                context->indices[this->mesh.indices.offset + i] = *(uint32_t*)(buffer.data() + i * 4);
                 this->mesh.indices.size = size / 4;
             }
         }
@@ -257,5 +259,5 @@ Geometry::~Geometry() {}
 
 void Geometry::Render(VkCommandBuffer buffer) const {
     VkDeviceSize offsets[] = { 0 };
-    vkCmdDrawIndexed(buffer, this->mesh.indices.size, 1, this->mesh.indices.offset, this->mesh.vertices.offset, 0);
+    vkCmdDrawIndexed(buffer, (uint32_t)this->mesh.indices.size, 1, (uint32_t)this->mesh.indices.offset, (int32_t)this->mesh.vertices.offset, 0);
 }
