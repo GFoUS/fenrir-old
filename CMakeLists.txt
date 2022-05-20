@@ -26,3 +26,7 @@ include_directories(vendor/imgui)
 
 add_executable(fenrir ${SRC} vendor/SPIRV-Reflect/spirv_reflect.c vendor/imgui/imgui.cpp vendor/imgui/imgui_draw.cpp vendor/imgui/imgui_demo.cpp vendor/imgui/imgui_tables.cpp vendor/imgui/imgui_widgets.cpp vendor/imgui/backends/imgui_impl_vulkan.cpp vendor/imgui/backends/imgui_impl_glfw.cpp)
 target_link_libraries(fenrir PRIVATE spdlog::spdlog glfw Vulkan::Vulkan nlohmann_json::nlohmann_json)
+
+set_target_properties(
+    fenrir PROPERTIES
+    VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}")

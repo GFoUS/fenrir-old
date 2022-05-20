@@ -4,6 +4,7 @@
 #include "window.h"
 #include "mesh.h"
 #include "material.h"
+#include "model.h"
 #include "vulkan/image.h"
 
 class Renderer : public Layer {
@@ -22,4 +23,6 @@ private:
     Pipeline* scenePipeline{};
     Image* sceneImage = nullptr;
     VkDescriptorSet sceneTexture{};
+
+    std::unique_ptr<Model> model;
 };

@@ -62,6 +62,8 @@ Renderer::Renderer(Window *window) : context(window) {
         .SetDynamicViewport()
         .SetResolveLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
         .Build();
+
+    this->model = std::make_unique<Model>(&context, "models/samples/2.0/Box/glTF/Box.gltf");
 }
 
 Renderer::~Renderer() {
@@ -167,10 +169,7 @@ void Renderer::OnTick() {
             vkCmdSetViewport(cmd, 0, 1, &viewport);
             vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-            VkDeviceSize offsets[] = { 0 };
-            vkCmdBindVertexBuffers(cmd, 0, 1, &this->vertexBuffer.buffer, offsets);
-            vkCmdBindIndexBuffer(cmd, this->indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
-            vkCmdDrawIndexed(cmd, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
+            this->model->Render(cmd);
 
             vkCmdEndRenderPass(cmd);
         });
